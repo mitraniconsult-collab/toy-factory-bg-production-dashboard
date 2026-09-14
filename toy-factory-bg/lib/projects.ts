@@ -49,7 +49,7 @@ export type ToyProject = {
   updated_at?: string;
   model_kind: ModelKind;
   prototype_task_id: string;
-  preview_url: string;
+  preview_url: string | null;
   preview_storage_path?: string | null;
   size_cm: number;
   price_eur: number;

@@ -10,7 +10,7 @@ create table if not exists public.toy_projects (
 
   model_kind text not null default 'pop',
   prototype_task_id text not null,
-  preview_url text not null,
+  preview_url text,
   preview_storage_path text,
   size_cm integer not null check (size_cm in (10, 15, 20)),
   price_eur numeric(10,2) not null check (price_eur >= 0),
@@ -52,6 +52,12 @@ alter table public.toy_projects add column if not exists glb_storage_path text;
 alter table public.toy_projects add column if not exists three_mf_storage_path text;
 alter table public.toy_projects add column if not exists production_notes text;
 alter table public.toy_projects add column if not exists tracking_number text;
+alter table public.toy_projects alter column preview_url drop not null;
+alter table public.toy_projects add column if not exists alert_sent_at timestamptz;
+alter table public.toy_projects add column if not exists shopify_fulfillment_id text;
+alter table public.toy_projects add column if not exists tracking_company text;
+alter table public.toy_projects add column if not exists print_palette jsonb;
+alter table public.toy_projects add column if not exists assets_purged_at timestamptz;
 
 alter table public.toy_projects drop constraint if exists toy_projects_model_kind_check;
 alter table public.toy_projects add constraint toy_projects_model_kind_check check (
@@ -152,3 +158,5 @@ end;
 $$;
 
 revoke all on function public.consume_api_rate_limit(text, text, integer, integer) from public;
+revoke all on function public.consume_api_rate_limit(text, text, integer, integer) from anon, authenticated;
+grant execute on function public.consume_api_rate_limit(text, text, integer, integer) to service_role;

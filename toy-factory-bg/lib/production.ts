@@ -69,6 +69,7 @@ async function freshProject(id: string, fallback: ToyProject) {
 export async function syncProject(input: string | ToyProject) {
   let project = typeof input === "string" ? await getProject(input) : input;
   if (!project) throw new Error("Project not found.");
+  if (project.assets_purged_at) throw new Error("Project assets were purged.");
 
   if (project.status === "PAID_BUILD_STARTING") {
     const claimed = await claimProjectTransition(project.id, "PAID_BUILD_STARTING", "BUILD_SUBMITTING", { last_error: null });
@@ -236,6 +237,7 @@ export async function syncActiveProjects(limit = 40) {
 }
 
 export async function retryProject(project: ToyProject) {
+  if (project.assets_purged_at) throw new Error("Project assets were purged.");
   if (project.status === "BUILD_FAILED") {
     const claimed = await claimProjectTransition(project.id, "BUILD_FAILED", "BUILD_SUBMITTING", { last_error: null });
     if (!claimed) return freshProject(project.id, project);

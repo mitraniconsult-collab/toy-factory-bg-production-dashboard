@@ -57,6 +57,7 @@ async function freshThreeMfUrl(project: ToyProject) {
 }
 
 export async function ensureProjectAssetArchived(project: ToyProject, kind: RecoverableAssetKind) {
+  if (project.assets_purged_at) throw new Error("Project assets have been permanently purged.");
   if (kind === "preview") {
     if (project.preview_storage_path) return project.preview_storage_path;
     const sourceUrl = await freshPreviewUrl(project);

@@ -1,4 +1,5 @@
 {
+  "git": { "deploymentEnabled": { "astra/phase4-production-grade": false } },
   "crons": [
     {
       "path": "/api/cron/sync-production",

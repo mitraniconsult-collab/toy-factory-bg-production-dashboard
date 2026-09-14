@@ -1,0 +1,3 @@
+{
+  "git": { "deploymentEnabled": { "astra/phase4-production-grade": false } }
+}

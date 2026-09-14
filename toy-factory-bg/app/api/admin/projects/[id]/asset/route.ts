@@ -28,6 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const project = await getProject(id);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (project.assets_purged_at) return NextResponse.json({ error: "Project assets were purged" }, { status: 410 });
 
   const config = ASSETS[kind];
   let path = project[config.field];
