@@ -1,0 +1,21 @@
+/* Shared interaction tokens; appended after the preserved storefront cascade. */
+:root { --focus-ring: #164a73; --readable-coral: #a33225; }
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
+button:disabled { cursor: not-allowed; opacity: .58; }
+.skip-link { position: fixed; top: -100px; left: 16px; z-index: 999; background: white; color: #111; padding: 12px 18px; border-radius: 8px; }
+.skip-link:focus { top: 12px; }
+.builder-notice { max-width: 1100px; margin: 24px auto; padding: 20px; border: 1px solid #cbbfac; border-radius: 16px; background: #fffaf0; color: #282520; line-height: 1.6; }
+.builder-notice button { margin: 8px; }
+.pmv2-error { color: #8a2118; background: #fff1ee; }
+.pmv2-progress-note, .pmv2-photo-tip, .pmv2-consent { color: #514942; }
+.pmv2-size-selector button, .pmv2-reset-link, .pmv2-regenerate { min-height: 44px; }
+.pmv2-dropzone:focus-visible { border-color: var(--focus-ring); }
+@media(max-width: 767px) {
+  .builder-notice { margin: 16px; }
+  .pmv2-preview-checkout-bar { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .pmv2-preview-controls { min-width: 0; }
+  .pmv2-consent a { text-decoration: underline; }
+}
+@media(prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

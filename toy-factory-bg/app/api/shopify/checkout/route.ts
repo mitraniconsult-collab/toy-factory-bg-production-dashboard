@@ -5,6 +5,7 @@ import { supabaseRest, updateProject, type ToyProject } from "@/lib/projects";
 import { createToyCheckout, resolveVariant } from "@/lib/shopify";
 import { archiveRemoteAsset } from "@/lib/storage";
 import { validateCheckout } from "@/lib/checkout-validation";
+import { getCatalog } from "@/lib/catalog";
 import { readJson, PublicError, publicFailure } from "@/lib/http";
 import { verifyPreviewAccess } from "@/lib/preview-access";
 import { consumeRateLimit, requestClientKey } from "@/lib/rate-limit";
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
     const buyerIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
     const variant = await resolveVariant(size, buyerIp);
     const price = Number(variant.price.amount);
+    const configuredPrice = getCatalog().find((c) => c.size === size)!.price;
+    if (price !== configuredPrice || body.expectedPrice !== configuredPrice) throw new PublicError("Цената е променена. Обнови страницата; ако проблемът остане, опитай по-късно.", 409);
     if (!Number.isFinite(price) || price < 0 || variant.price.currencyCode !== "EUR") throw new Error("Invalid EUR variant price");
     const digest = createHash("sha256").update(`${modelKind}:${prototypeTaskId}`).digest("hex");
     const rows = await supabaseRest("rpc/reserve_toy_checkout", { method: "POST", body: JSON.stringify({ p_hash: digest, p_project: { id: randomUUID(), model_kind: modelKind, prototype_task_id: prototypeTaskId, preview_url: preview, size_cm: Number(size), price_eur: price, expected_variant_id: variant.id } }) }) as ToyProject[];

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:browser": "node scripts/storefront-smoke.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",
@@ -20,6 +21,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "playwright": "1.62.1",
     "typescript": "^5.9.0",
     "vitest": "5.0.0"
   }

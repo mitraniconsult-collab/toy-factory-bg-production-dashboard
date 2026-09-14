@@ -324,7 +324,7 @@ async function deleteObjects(paths: string[]) {
 
 /** Include deterministic staging chunks left by an interrupted upload. */
 export async function deleteProjectUploadRemnants(projectId: string) {
-  const paths = ["preview-image", "model.glb", "model.3mf"].flatMap((name) => {
+  const paths = ["preview", "preview-image", "model.glb", "model.3mf"].flatMap((name) => {
     const path = projectAssetPath(projectId, name);
     return [path, `${path}.manifest.json`, ...Array.from({ length: Math.ceil(MAX_ASSET_BYTES / CHUNK_SIZE) }, (_, i) => `${path}.parts/${String(i).padStart(4, "0")}`)];
   });

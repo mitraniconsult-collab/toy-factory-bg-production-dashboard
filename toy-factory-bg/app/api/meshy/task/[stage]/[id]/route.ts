@@ -50,7 +50,7 @@ export async function GET(request: NextRequest, context: { params: Params }) {
     }
 
     const task = await getTask(modelKind, PUBLIC_STAGE, id);
-    return NextResponse.json({ id: task.id, status: task.status, progress: task.progress, image_urls: task.image_urls, ...(task.task_error ? { error: "Генерацията не успя. Опитай с друга снимка." } : {}) });
+    return NextResponse.json({ id: task.id, status: task.status, progress: task.progress, image_urls: task.image_urls?.length ? task.image_urls : task.thumbnail_url ? [task.thumbnail_url] : [], ...(task.task_error ? { error: "Генерацията не успя. Опитай с друга снимка." } : {}) });
   } catch (error) {
     return publicFailure(error);
   }
