@@ -122,7 +122,7 @@ export async function createProject(project: ToyProject) {
   return rows[0];
 }
 
-export async function updateProject(id: string, patch: Partial<ToyProject>) {
+export async function updateProject(id: string, patch: Partial<ToyProject>): Promise<ToyProject | null> {
   // Clearing the error re-arms the watchdog so the next failure alerts again.
   const rearm = patch.last_error === null && patch.alert_sent_at === undefined ? { alert_sent_at: null } : {};
   const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}`, {
@@ -143,7 +143,7 @@ export async function claimProjectTransition(
   fromStatus: ProjectStatus,
   toStatus: ProjectStatus,
   patch: Partial<ToyProject> = {}
-) {
+): Promise<ToyProject | null> {
   const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(fromStatus)}`;
   const rows = (await supabaseRest(path, {
     method: "PATCH",
@@ -157,7 +157,7 @@ export async function claimProjectTransition(
   return rows?.[0] || null;
 }
 
-export async function getProject(id: string) {
+export async function getProject(id: string): Promise<ToyProject | null> {
   const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}&select=*`, {
     method: "GET",
   })) as ToyProject[];
@@ -265,7 +265,7 @@ export async function claimProjectForPaidOrder(
     | "customer_email"
     | "shipping_city"
   >
-) {
+): Promise<ToyProject | null> {
   const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.CHECKOUT_CREATED`;
   const rows = (await supabaseRest(path, {
     method: "PATCH",
