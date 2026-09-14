@@ -1,6 +1,13 @@
 import { isModelKind, type ModelKind } from "./image";
 export type Draft = { taskId: string; accessToken: string; modelKind: ModelKind; regenerations: number; expiresAt: number };
 const KEY = "popme-draft-v2";
+export function submissionId(reset = false) {
+  try {
+    const saved = sessionStorage.getItem("popme-submission");
+    if (!reset && saved) return saved;
+    const id = crypto.randomUUID(); sessionStorage.setItem("popme-submission", id); return id;
+  } catch { return crypto.randomUUID(); }
+}
 export function readDraft(): Draft | null {
   try {
     const d = JSON.parse(sessionStorage.getItem(KEY) || "null");

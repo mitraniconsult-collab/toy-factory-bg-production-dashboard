@@ -5,6 +5,7 @@ import { Manrope, Sofia_Sans_Extra_Condensed } from "next/font/google";
 import "./globals.css";
 import "./storefront.css";
 import "./accessibility.css";
+import "./operations.css";
 
 const displayFont = Sofia_Sans_Extra_Condensed({
   subsets: ["cyrillic", "latin"],

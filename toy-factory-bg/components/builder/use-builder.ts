@@ -3,7 +3,7 @@ import { useEffect, useReducer, useRef, useState, type ChangeEvent, type DragEve
 import type { CatalogItem } from "@/lib/catalog";
 import { builderReducer, initialState } from "./machine";
 import { isModelKind, MODEL_OPTIONS, prepareImage, type ModelKind } from "./image";
-import { photoStore, readDraft, writeDraft, type Draft } from "./session";
+import { photoStore, readDraft, writeDraft, submissionId, type Draft } from "./session";
 
 export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "preview") {
   const [state, dispatch] = useReducer(builderReducer, initialState);
@@ -21,6 +21,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
   const controller = useRef<AbortController | null>(null);
   const running = useRef(false);
   const mounted = useRef(true);
+  const requestId = useRef<string | null>(null);
   const fail = (error: unknown) => dispatch({ type: "ERROR", message: error instanceof Error ? error.message : "Временна грешка. Опитай пак." });
   const selectedModel = MODEL_OPTIONS.find((m) => m.value === modelKind)!;
   const price = catalog.find((c) => c.size === size)!.price;
@@ -80,6 +81,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 8 * 1024 * 1024) return fail(new Error("Качи JPG, PNG или WEBP до 8 MB."));
     try {
       const photo = await prepareImage(file);
+      requestId.current = submissionId(true);
       setSourceImage(photo); setPreviewImage(null); setDraft(null); setRegenerations(0); writeDraft(null); dispatch({ type: "RESET" });
       if (!(await photoStore(photo))) setNotice("Снимката е заредена. Браузърът не позволява запазване след refresh.");
     } catch (e) { fail(e); }
@@ -89,8 +91,9 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
     if (!sourceImage || !consent) return fail(new Error("Качи снимка и потвърди правото си да я използваш."));
     if (isRegeneration && regenerations >= 2) return fail(new Error("Използва двата допълнителни опита."));
     running.current = true; controller.current = new AbortController(); dispatch({ type: "START" }); setPreviewImage(null);
+    requestId.current = isRegeneration ? submissionId(true) : requestId.current || submissionId();
     try {
-      const response = await fetch("/api/meshy/prototype", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: sourceImage, modelKind }), signal: AbortSignal.any([controller.current.signal, AbortSignal.timeout(30000)]) });
+      const response = await fetch("/api/meshy/prototype", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: sourceImage, modelKind, requestId: requestId.current }), signal: AbortSignal.any([controller.current.signal, AbortSignal.timeout(30000)]) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не успяхме да стартираме визуализацията.");
       const next: Draft = { taskId: data.taskId, accessToken: data.accessToken, modelKind, regenerations: regenerations + (isRegeneration ? 1 : 0), expiresAt: Date.now() + 3500000 };
@@ -102,7 +105,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
   }
   async function goToCheckout() {
     if (!draft || running.current) return;
-    running.current = true; dispatch({ type: "CHECKOUT" });
+    running.current = true; dispatch({ type: "READY" }); dispatch({ type: "CHECKOUT" });
     try {
       const response = await fetch("/api/shopify/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(90000), body: JSON.stringify({ prototypeTaskId: draft.taskId, accessToken: draft.accessToken, modelKind, size, expectedPrice: price }) });
       const data = await response.json();
@@ -113,7 +116,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
     finally { running.current = false; }
   }
   function reset() { controller.current?.abort(); running.current = false; writeDraft(null); void photoStore(null); setSourceImage(null); setPreviewImage(null); setDraft(null); setRegenerations(0); setConsent(false); setNotice(""); dispatch({ type: "RESET" }); window.history.replaceState({}, "", `/create?style=${modelKind}`); }
-  function chooseModelKind(value: ModelKind) { setModelKind(value); setPreviewImage(null); setDraft(null); writeDraft(null); setRegenerations(0); dispatch({ type: "RESET" }); }
+  function chooseModelKind(value: ModelKind) { requestId.current = submissionId(true); setModelKind(value); setPreviewImage(null); setDraft(null); writeDraft(null); setRegenerations(0); dispatch({ type: "RESET" }); }
   return { catalog, step: state.phase, progress: state.progress, error: state.error, notice, modelKind, sourceImage, previewImage, consent, setConsent, dragging, setDragging, size, setSize, hydrated, inputRef, selectedModel, price, attemptsLeft: Math.max(0, 2-regenerations), checkoutLoading: state.phase === "checkout", draft, resume, generatePreview, goToCheckout, reset, chooseModelKind,
     previewError: () => { setPreviewImage(null); fail(new Error("Изображението е изтекло. Провери визуализацията отново.")); },
     handleInput: (e: ChangeEvent<HTMLInputElement>) => acceptFile(e.target.files?.[0]), handleDrop: (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragging(false); void acceptFile(e.dataTransfer.files?.[0]); } };

@@ -7,7 +7,7 @@ export const MODEL_OPTIONS: Array<{
   image: string;
   copy: string;
 }> = [
-  { value: "pop", name: "POP", subtitle: "Vinyl", image: "/marketing/pop.svg", copy: "Vinyl визия с по-голяма глава и опростени форми." },
+  { value: "pop", name: "POP", subtitle: "Vinyl", image: "/marketing/pop-card.svg", copy: "Vinyl визия с по-голяма глава и опростени форми." },
   { value: "mini", name: "MINI", subtitle: "Chibi", image: "/marketing/mini.svg", copy: "Chibi визия с по-мек силует и повече характер." },
   { value: "brick", name: "BRICK", subtitle: "Brick", image: "/marketing/brick.svg", copy: "Геометрична brick-style версия, създадена по твоята снимка." },
 ];
@@ -43,4 +43,3 @@ export function prepareImage(file: File) {
     reader.readAsDataURL(file);
   });
 }
-

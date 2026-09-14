@@ -80,4 +80,9 @@ revoke all on function public.record_production_event() from public, anon, authe
 drop trigger if exists toy_project_events on public.toy_projects;
 create trigger toy_project_events after insert or update on public.toy_projects for each row execute function public.record_production_event();
 create index if not exists production_due_idx on public.toy_projects(next_retry_at) where not automation_blocked;
+-- Old workers may have submitted without persisting a provider ID. New workers
+-- always set job_id before submission, so this guard is safe to re-run.
+update public.toy_projects set automation_blocked=true,
+  last_error=coalesce(last_error,'Legacy submission requires provider reconciliation')
+where job_id is null and status in ('BUILD_SUBMITTING','MODEL_RESIZE_SUBMITTING','PRINT_FILE_SUBMITTING');
 commit;

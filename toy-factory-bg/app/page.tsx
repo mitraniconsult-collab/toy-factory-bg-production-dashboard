@@ -8,7 +8,7 @@ const styles = [
     key: "pop",
     subtitle: "Vinyl collectible",
     copy: "Vinyl визия с по-голяма глава и силен колекционерски характер.",
-    image: "/marketing/pop.svg",
+    image: "/marketing/pop-card.svg",
     tone: "coral",
     badge: "КЛАСИКА",
   },
@@ -95,7 +95,7 @@ export default function Home() {
           <div className="pmv2-stage-glow" />
           <div className="pmv2-stage-shadow" />
           <a className="pmv2-figure pmv2-figure-pop" href="/create?style=pop">
-            <img src="/marketing/pop.svg" alt="Примерна POP фигурка" />
+            <img src="/marketing/pop-card.svg" alt="Примерна POP фигурка" />
             <b>POP</b>
           </a>
           <a className="pmv2-figure pmv2-figure-mini" href="/create?style=mini">
@@ -161,7 +161,7 @@ export default function Home() {
           <div className="pmv2-proof-flow" aria-label="Снимка към preview към фигурка">
             <figure><div className="pmv2-proof-placeholder"><span>ТВОЯТА<br />СНИМКА</span></div><figcaption>01 · СНИМКА</figcaption></figure>
             <figure><div className="pmv2-proof-preview"><img src="/marketing/mini.svg" alt="Примерна MINI визуализация" /></div><figcaption>02 · PREVIEW</figcaption></figure>
-            <figure><div className="pmv2-proof-product"><img src="/marketing/pop.svg" alt="Примерна готова фигурка" /></div><figcaption>03 · POPME</figcaption></figure>
+            <figure><div className="pmv2-proof-product"><img src="/marketing/pop-card.svg" alt="Примерна готова фигурка" /></div><figcaption>03 · POPME</figcaption></figure>
           </div>
         </div>
       </section>

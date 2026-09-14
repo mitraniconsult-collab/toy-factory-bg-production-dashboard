@@ -6,6 +6,7 @@ import {
   ProjectStatus,
   ToyProject,
   updateProject,
+  supabaseRest,
 } from "@/lib/projects";
 
 /**
@@ -69,6 +70,7 @@ export async function purgeProjectAssets(project: ToyProject) {
 
 export async function runRetention(limit = 1) {
   const now = Date.now();
+  await supabaseRest(`prototype_submissions?created_at=lt.${new Date(now - 7 * 86400000).toISOString()}`, { method: "DELETE" });
   const projects = await listProjectsForRetention({
     unpaidStatuses: UNPAID_STATUSES,
     unpaidBefore: new Date(now - RETENTION_UNPAID_DAYS * 86_400_000).toISOString(),

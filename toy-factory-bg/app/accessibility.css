@@ -8,6 +8,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .builder-notice button { margin: 8px; }
 .pmv2-error { color: #8a2118; background: #fff1ee; }
 .pmv2-progress-note, .pmv2-photo-tip, .pmv2-consent { color: #514942; }
+.pmv2-consent, .pmv2-photo-tip, .pmv2-preview-source-row p { font-size: 14px; line-height: 1.6; }
+.pmv2-style-picker-rail button > span, .pmv2-preview-benefits li { font-size: 12px; }
+.pmv2-preview-checkout-bar button, .pmv2-generate-bar button { font-size: 12px; }
 .pmv2-size-selector button, .pmv2-reset-link, .pmv2-regenerate { min-height: 44px; }
 .pmv2-dropzone:focus-visible { border-color: var(--focus-ring); }
 @media(max-width: 767px) {

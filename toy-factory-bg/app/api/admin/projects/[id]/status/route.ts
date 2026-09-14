@@ -5,14 +5,7 @@ import { MANUAL_PRODUCTION_STATUSES } from "@/lib/status";
 import { createShopifyFulfillment, shopifyAdminConfigured } from "@/lib/shopify-admin";
 import { withProjectJob, externalOperation } from "@/lib/jobs";
 
-const ALLOWED_TRANSITIONS: Partial<Record<ProjectStatus, ProjectStatus[]>> = {
-  READY_FOR_PRINT: ["READY_FOR_PRINT", "PRINTING", "CANCELLED"],
-  PRINTING: ["PRINTING", "PRINTED", "CANCELLED"],
-  PRINTED: ["PRINTED", "PACKED", "CANCELLED"],
-  PACKED: ["PACKED", "SHIPPED", "CANCELLED"],
-  SHIPPED: ["SHIPPED"],
-  CANCELLED: ["CANCELLED"],
-};
+import { ALLOWED_TRANSITIONS } from "@/lib/operations";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

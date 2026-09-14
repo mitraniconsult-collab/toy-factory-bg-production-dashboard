@@ -24,7 +24,7 @@ function describe(project: ToyProject) {
     `Клиент: ${project.customer_name || "—"} <${project.customer_email || "—"}>`,
     `Стил/размер: ${(project.model_kind || "pop").toUpperCase()} · ${project.size_cm} cm`,
     `Статус: ${meta?.label || project.status}`,
-    `Последна промяна: ${project.updated_at || "—"}`,
+    `Последна промяна на статус: ${project.status_changed_at || project.updated_at || "—"}`,
   ];
 }
 

@@ -15,6 +15,7 @@ export type AlertInput = {
   lines: string[];
   projectId?: string | null;
 };
+import { createHash } from "node:crypto";
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -43,11 +44,12 @@ export async function sendAlert(input: AlertInput): Promise<boolean> {
   </div>`;
 
   try {
+    const payload = JSON.stringify({ from, to, subject: `[POPME] ${input.subject}`, text: textLines.join("\n"), html });
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": `popme-alert-${createHash("sha256").update(payload).digest("hex")}` },
       signal: AbortSignal.timeout(10_000),
-      body: JSON.stringify({ from, to, subject: `[POPME] ${input.subject}`, text: textLines.join("\n"), html }),
+      body: payload,
     });
     if (!response.ok) {
       console.error("alert send failed", { status: response.status, body: await response.text().catch(() => "") });

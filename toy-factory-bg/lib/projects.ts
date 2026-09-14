@@ -94,6 +94,7 @@ export type ToyProject = {
   closed_at?: string | null;
   alert_attempts?: number;
   alert_next_retry_at?: string;
+  status_changed_at?: string;
 };
 
 function supabaseConfig() {
@@ -189,7 +190,7 @@ export async function listProjectsNeedingAlert(input: { staleStatuses: ProjectSt
   params.set("alert_next_retry_at", `lte.${new Date().toISOString()}`);
   params.set(
     "or",
-    `(last_error.not.is.null,and(status.in.(${input.staleStatuses.join(",")}),updated_at.lt.${input.staleBefore}))`
+    `(last_error.not.is.null,and(status.in.(${input.staleStatuses.join(",")}),status_changed_at.lt.${input.staleBefore}))`
   );
   params.set("order", "updated_at.asc");
   params.set("limit", "1");
@@ -242,14 +243,24 @@ export async function findProjectByTaskId(taskId: string) {
   return rows?.[0] || null;
 }
 
-export async function listProjects(input: { status?: ProjectStatus; q?: string; limit?: number } = {}) {
+export async function listProjects(input: { status?: ProjectStatus; statuses?: ProjectStatus[]; q?: string; limit?: number; page?: number; style?: string; size?: string; from?: string; to?: string; issue?: string } = {}) {
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("order", "created_at.desc");
-  params.set("limit", String(Math.min(Math.max(input.limit || 100, 1), 250)));
+  params.set("limit", "26"); // one look-ahead row, never sampled dashboard totals
+  params.set("offset", String((Math.max(1, Math.min(100000, input.page || 1)) - 1) * 25));
   if (input.status) params.set("status", `eq.${input.status}`);
+  else if (input.statuses) params.set("status", `in.(${input.statuses.join(",")})`);
+  if (input.style && ["pop", "mini", "brick"].includes(input.style)) params.set("model_kind", `eq.${input.style}`);
+  if (input.size && ["10", "15", "20"].includes(input.size)) params.set("size_cm", `eq.${input.size}`);
+  const and: string[] = [];
+  if (input.from && /^\d{4}-\d{2}-\d{2}$/.test(input.from)) and.push(`created_at.gte.${input.from}T00:00:00Z`);
+  if (input.to && /^\d{4}-\d{2}-\d{2}$/.test(input.to)) and.push(`created_at.lte.${input.to}T23:59:59.999Z`);
+  if (input.issue === "any") and.push("or(last_error.not.is.null,automation_blocked.eq.true)");
+  if (input.issue === "held") params.set("automation_blocked", "eq.true");
+  if (input.issue === "retry") params.set("retry_count", "gt.0");
   if (input.q?.trim()) {
-    const q = input.q.trim().replace(/[,*()]/g, "");
+    const q = input.q.trim().replace(/[^\p{L}\p{N}@. _-]/gu, "").slice(0, 150);
     const filters = [
       `shopify_order_name.ilike.*${q}*`,
       `customer_name.ilike.*${q}*`,
@@ -258,9 +269,17 @@ export async function listProjects(input: { status?: ProjectStatus; q?: string; 
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(q)) {
       filters.push(`id.eq.${q}`);
     }
-    params.set("or", `(${filters.join(",")})`);
+    and.push(`or(${filters.join(",")})`);
   }
+  if (and.length) params.set("and", `(${and.join(",")})`);
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
+}
+
+export type ProductionEvent = { id: number; created_at: string; from_status: string | null; to_status: string; operation: string | null; job_id: string | null };
+export async function listProjectEvents(id: string, before?: string) {
+  const params = new URLSearchParams({ project_id: `eq.${id}`, select: "id,created_at,from_status,to_status,operation,job_id", order: "id.desc", limit: "31" });
+  if (before && /^\d+$/.test(before)) params.set("id", `lt.${before}`);
+  return await supabaseRest(`production_events?${params}`) as ProductionEvent[];
 }
 
 export async function listProjectsByStatuses(statuses: ProjectStatus[], limit = 50) {
