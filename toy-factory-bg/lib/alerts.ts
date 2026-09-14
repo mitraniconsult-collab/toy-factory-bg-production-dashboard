@@ -46,6 +46,7 @@ export async function sendAlert(input: AlertInput): Promise<boolean> {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({ from, to, subject: `[POPME] ${input.subject}`, text: textLines.join("\n"), html }),
     });
     if (!response.ok) {

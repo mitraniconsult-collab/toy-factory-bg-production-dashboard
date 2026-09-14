@@ -1,146 +1,51 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getTask, type ModelKind } from "@/lib/meshy";
-import { createProject, updateProject } from "@/lib/projects";
-import { createToyCheckout, ToySize } from "@/lib/shopify";
+import { getTask } from "@/lib/meshy";
+import { supabaseRest, updateProject, type ToyProject } from "@/lib/projects";
+import { createToyCheckout, resolveVariant } from "@/lib/shopify";
 import { archiveRemoteAsset } from "@/lib/storage";
+import { validateCheckout } from "@/lib/checkout-validation";
+import { readJson, PublicError, publicFailure } from "@/lib/http";
+import { verifyPreviewAccess } from "@/lib/preview-access";
+import { consumeRateLimit, requestClientKey } from "@/lib/rate-limit";
+import { externalOperation, withProjectJob, JobBusyError } from "@/lib/jobs";
 
 export const runtime = "nodejs";
-
-function isToySize(value: unknown): value is ToySize {
-  return value === "10" || value === "15" || value === "20";
-}
-
-function isModelKind(value: unknown): value is ModelKind {
-  return value === "pop" || value === "mini" || value === "brick";
-}
-
-function getBuyerIp(request: NextRequest) {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    null
-  );
-}
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
-  let projectId: string | null = null;
-
   try {
-    // A mock preview must never become a paid order: after payment the pipeline
-    // would send the fake prototype id to Meshy and fail. Block it on production.
-    if (process.env.NEXT_PUBLIC_MOCK_AI === "true" && process.env.VERCEL_ENV === "production") {
-      return NextResponse.json(
-        { error: "Поръчките са временно недостъпни (AI mock режим е включен на production)." },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const prototypeTaskId = String(body?.prototypeTaskId || "");
-    const size = body?.size;
-    const modelKind = body?.modelKind;
-
-    if (!prototypeTaskId) {
-      return NextResponse.json({ error: "Липсва prototype task." }, { status: 400 });
-    }
-    if (!isToySize(size)) {
-      return NextResponse.json({ error: "Невалиден размер." }, { status: 400 });
-    }
-    if (!isModelKind(modelKind)) {
-      return NextResponse.json({ error: "Невалиден стил на фигурката." }, { status: 400 });
-    }
-
-    let previewUrl: string;
-
-    if (process.env.NEXT_PUBLIC_MOCK_AI === "true" && prototypeTaskId === "mock-prototype-task") {
-      previewUrl = String(body?.previewImage || "");
-      if (!previewUrl) {
-        return NextResponse.json({ error: "Липсва mock preview." }, { status: 400 });
-      }
-    } else {
-      const task = await getTask(modelKind, "prototype", prototypeTaskId);
-      if (task.status !== "SUCCEEDED") {
-        return NextResponse.json(
-          { error: "Визуализацията още не е готова за поръчка." },
-          { status: 409 }
-        );
-      }
-      previewUrl = task.image_urls?.[0] || task.thumbnail_url || "";
-      if (!previewUrl) {
-        return NextResponse.json({ error: "Meshy не върна preview URL." }, { status: 502 });
-      }
-    }
-
-    const newProjectId = randomUUID();
-    projectId = newProjectId;
-
-    // Archive the approved preview before we create a payable checkout. Meshy
-    // result URLs are time-limited, so an order must never depend only on them.
-    let previewStoragePath: string | null = null;
-    if (!previewUrl.startsWith("data:")) {
-      previewStoragePath = await archiveRemoteAsset({
-        projectId: newProjectId,
-        sourceUrl: previewUrl,
-        filename: "preview",
-      });
-    }
-
-    // Shopify is the single source of truth for the sell price. We resolve the
-    // selected variant, create the hosted checkout and persist that exact price.
-    const cart = await createToyCheckout({
-      size,
-      style: modelKind,
-      projectId: newProjectId,
-      buyerIp: getBuyerIp(request),
-    });
-
-    const price = Number(cart.unitPrice?.amount);
-    if (!Number.isFinite(price) || price < 0 || cart.unitPrice?.currencyCode !== "EUR") {
-      throw new Error("Shopify variant price must be a valid EUR amount.");
-    }
-
-    await createProject({
-      id: newProjectId,
-      model_kind: modelKind,
-      prototype_task_id: prototypeTaskId,
-      preview_url: previewUrl,
-      preview_storage_path: previewStoragePath,
-      size_cm: Number(size),
-      price_eur: price,
-      status: "CHECKOUT_CREATED",
-      shopify_cart_id: cart.cartId,
-      shopify_order_id: null,
-      shopify_order_name: null,
-      shopify_webhook_id: null,
-      paid_at: null,
-      build_task_id: null,
-      resize_task_id: null,
-      print_task_id: null,
-      glb_url: null,
-      glb_storage_path: null,
-      three_mf_url: null,
-      three_mf_storage_path: null,
-      last_error: null,
-    });
-
-    return NextResponse.json({
-      projectId: newProjectId,
-      checkoutUrl: cart.checkoutUrl,
-      total: cart.total,
-      price: cart.unitPrice,
-    });
+    const body = await readJson(request);
+    const { prototypeTaskId, size, modelKind } = validateCheckout(body);
+    if (process.env.NEXT_PUBLIC_MOCK_AI === "true") throw new PublicError("Плащането е изключено в демо режим.", 403);
+    if (!verifyPreviewAccess(modelKind, prototypeTaskId, body.accessToken)) throw new PublicError("Визуализацията е изтекла. Създай нова.", 401);
+    const rate = await consumeRateLimit({ scope: "checkout", key: requestClientKey(request), limit: 10, windowSeconds: 3600 });
+    if (!rate.allowed) return NextResponse.json({ error: "Твърде много опити. Опитай по-късно." }, { status: 429, headers: { "Retry-After": String(Math.max(1, Math.ceil((Date.parse(rate.resetAt) - Date.now()) / 1000))) } });
+    const task = await getTask(modelKind, "prototype", prototypeTaskId);
+    const preview = task.image_urls?.[0] || task.thumbnail_url;
+    if (task.status !== "SUCCEEDED" || !preview) throw new PublicError("Визуализацията още не е готова.", 409);
+    const buyerIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+    const variant = await resolveVariant(size, buyerIp);
+    const price = Number(variant.price.amount);
+    if (!Number.isFinite(price) || price < 0 || variant.price.currencyCode !== "EUR") throw new Error("Invalid EUR variant price");
+    const digest = createHash("sha256").update(`${modelKind}:${prototypeTaskId}`).digest("hex");
+    const rows = await supabaseRest("rpc/reserve_toy_checkout", { method: "POST", body: JSON.stringify({ p_hash: digest, p_project: { id: randomUUID(), model_kind: modelKind, prototype_task_id: prototypeTaskId, preview_url: preview, size_cm: Number(size), price_eur: price, expected_variant_id: variant.id } }) }) as ToyProject[];
+    const reserved = rows[0];
+    if (!reserved || reserved.assets_purged_at || reserved.paid_at || reserved.automation_blocked) throw new PublicError("Тази визуализация вече е използвана или изтекла.", 409);
+    if (reserved.size_cm !== Number(size)) throw new PublicError("Вече има поръчка с друг размер за тази визуализация.", 409);
+    if (reserved.checkout_url) return NextResponse.json({ projectId: reserved.id, checkoutUrl: reserved.checkout_url });
+    const result = await withProjectJob(reserved.id, async (p) => {
+      if (p.checkout_url) return { projectId: p.id, checkoutUrl: p.checkout_url };
+      if (p.automation_blocked) throw new PublicError("Поръчката изисква проверка. Опитай по-късно.", 409);
+      const path = p.preview_storage_path || await archiveRemoteAsset({ projectId: p.id, sourceUrl: preview, filename: "preview" });
+      await updateProject(p.id, { preview_storage_path: path });
+      const cart = await externalOperation(p, "shopify-cart", "initial", () => createToyCheckout({ size, style: modelKind, projectId: p.id, buyerIp, resolvedVariant: { id: p.expected_variant_id!, price: { amount: String(p.price_eur), currencyCode: "EUR" } } }));
+      await updateProject(p.id, { status: "CHECKOUT_CREATED", checkout_url: cart.checkoutUrl, shopify_cart_id: cart.cartId, last_error: null });
+      return { projectId: p.id, checkoutUrl: cart.checkoutUrl };
+    }, true);
+    return NextResponse.json(result);
   } catch (error) {
-    console.error("checkout error", { projectId, error });
-    if (projectId) {
-      await updateProject(projectId, {
-        status: "CHECKOUT_FAILED",
-        last_error: error instanceof Error ? error.message : "Shopify checkout failed",
-      }).catch(() => null);
-    }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Не успяхме да създадем checkout." },
-      { status: 500 }
-    );
+    if (error instanceof JobBusyError) return NextResponse.json({ error: "Поръчката се подготвя. Опитай отново след малко." }, { status: 409 });
+    return publicFailure(error);
   }
 }

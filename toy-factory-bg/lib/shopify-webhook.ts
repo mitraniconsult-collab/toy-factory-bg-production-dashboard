@@ -22,7 +22,7 @@ function normalizeShopDomain(value: string) {
 export function shopifyShopDomainMatches(provided: string | null) {
   const expected = process.env.SHOPIFY_STORE_DOMAIN;
   // If the store domain is not configured we cannot verify it; HMAC still protects us.
-  if (!expected) return true;
+  if (!expected) return false;
   if (!provided) return false;
   return normalizeShopDomain(provided) === normalizeShopDomain(expected);
 }

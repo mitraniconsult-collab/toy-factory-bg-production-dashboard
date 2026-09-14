@@ -84,6 +84,7 @@ async function storefrontRequest<T>(query: string, variables: Record<string, unk
   if (buyerIp && process.env.SHOPIFY_STOREFRONT_PRIVATE_TOKEN) headers["Shopify-Storefront-Buyer-IP"] = buyerIp;
   const response = await fetch(`https://${getShopDomain()}/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
+    signal: AbortSignal.timeout(20_000),
     headers,
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
@@ -104,7 +105,7 @@ function directVariantId(size: ToySize) {
 
 type ResolvedVariant = { id: string; price: Money };
 
-async function resolveVariant(size: ToySize, buyerIp?: string | null): Promise<ResolvedVariant> {
+export async function resolveVariant(size: ToySize, buyerIp?: string | null): Promise<ResolvedVariant> {
   const direct = directVariantId(size);
   if (direct) {
     const data = await storefrontRequest<{
@@ -142,8 +143,9 @@ export async function createToyCheckout(input: {
   style: ToyStyle;
   projectId: string;
   buyerIp?: string | null;
+  resolvedVariant?: ResolvedVariant;
 }) {
-  const variant = await resolveVariant(input.size, input.buyerIp);
+  const variant = input.resolvedVariant || await resolveVariant(input.size, input.buyerIp);
   const styleLabel = input.style.toUpperCase();
   const data = await storefrontRequest<{
     cartCreate?: {
@@ -183,6 +185,7 @@ export async function createToyCheckout(input: {
     totalQuantity: result.cart.totalQuantity,
     total: result.cart.cost?.totalAmount,
     unitPrice: variant.price,
+    variantId: variant.id,
     warnings: result.warnings || [],
   };
 }

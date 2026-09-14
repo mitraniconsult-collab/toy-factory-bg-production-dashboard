@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const results = await runRetention(50);
+    const results = await runRetention(1);
     return NextResponse.json({ ok: true, count: results.length, results });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Retention failed";

@@ -24,5 +24,13 @@ it("migrates a fresh and an existing database repeatedly without losing data", a
   expect(allowed.rows[0].allowed).toBe(true);
   expect(denied.rows[0].allowed).toBe(false);
   expect((await db.query("select * from toy_projects")).rows).toHaveLength(1);
+  const claim = "select * from claim_production_job('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',true)";
+  expect((await db.query(claim)).rows).toHaveLength(1);
+  expect((await db.query(claim)).rows).toHaveLength(0);
+  await db.exec("update toy_projects set lease_until=now()-interval '1 second';");
+  expect((await db.query(claim)).rows).toHaveLength(1);
+  await db.exec("update toy_projects set status='BUILD_FAILED', last_operation='test';");
+  expect((await db.query("select * from production_events where operation='test'")).rows).toHaveLength(1);
+  expect((await db.query<{ allowed: boolean }>("select has_function_privilege('anon','claim_production_job(uuid,uuid,boolean)','EXECUTE') as allowed")).rows[0].allowed).toBe(false);
   await db.close();
 });

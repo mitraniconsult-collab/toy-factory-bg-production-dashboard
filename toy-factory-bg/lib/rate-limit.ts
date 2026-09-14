@@ -21,8 +21,8 @@ export function requestClientKey(request: Request) {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
   const ip = forwarded || realIp || "unknown";
-  const userAgent = request.headers.get("user-agent") || "unknown";
-  return hashKey(`${ip}|${userAgent.slice(0, 180)}`);
+  // User-Agent is client controlled and must not reset a paid API budget.
+  return hashKey(ip);
 }
 
 export async function consumeRateLimit(input: {
@@ -34,6 +34,7 @@ export async function consumeRateLimit(input: {
   const { url, key } = supabaseConfig();
   const response = await fetch(`${url}/rest/v1/rpc/consume_api_rate_limit`, {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,

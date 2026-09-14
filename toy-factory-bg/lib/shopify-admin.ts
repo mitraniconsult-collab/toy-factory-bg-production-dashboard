@@ -28,6 +28,7 @@ async function adminGraphql<T>(query: string, variables: Record<string, unknown>
 
   const response = await fetch(`https://${shopDomain()}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
+    signal: AbortSignal.timeout(20_000),
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
@@ -44,8 +45,9 @@ query OrderFulfillmentOrders($id: ID!) {
   order(id: $id) {
     id
     name
-    fulfillmentOrders(first: 10) {
-      nodes { id status }
+    fulfillmentOrders(first: 100) {
+      pageInfo { hasNextPage }
+      nodes { id status lineItems(first: 100) { pageInfo { hasNextPage } nodes { id remainingQuantity lineItem { id } } } }
     }
   }
 }`;
@@ -59,7 +61,7 @@ mutation FulfillmentCreate($fulfillment: FulfillmentInput!) {
 }`;
 
 type FulfillmentOrdersData = {
-  order: { id: string; name: string; fulfillmentOrders: { nodes: Array<{ id: string; status: string }> } } | null;
+  order: { id: string; name: string; fulfillmentOrders: { pageInfo: { hasNextPage: boolean }; nodes: Array<{ id: string; status: string; lineItems: { pageInfo: { hasNextPage: boolean }; nodes: Array<{ id: string; remainingQuantity: number; lineItem: { id: string } }> } }> } } | null;
 };
 type FulfillmentCreateData = {
   fulfillmentCreate: {
@@ -69,26 +71,30 @@ type FulfillmentCreateData = {
 };
 
 /**
- * Creates one fulfillment covering all open fulfillment orders of the Shopify
- * order and asks Shopify to notify the customer. Returns the fulfillment GID.
+ * Fulfills only the validated project line. Requests notification; delivery
+ * of the customer's email is not observable from this response.
  */
 export async function createShopifyFulfillment(input: {
   orderId: string;
+  lineItemId: string;
   trackingNumber: string;
   trackingCompany?: string | null;
   notifyCustomer?: boolean;
 }) {
   const data = await adminGraphql<FulfillmentOrdersData>(FULFILLMENT_ORDERS_QUERY, { id: input.orderId });
   if (!data.order) throw new Error(`Shopify order ${input.orderId} not found via Admin API.`);
+  if (data.order.fulfillmentOrders.pageInfo.hasNextPage || data.order.fulfillmentOrders.nodes.some((fo) => fo.lineItems.pageInfo.hasNextPage)) throw new Error("Large order requires manual fulfillment review");
 
   const open = data.order.fulfillmentOrders.nodes.filter((fo) => fo.status === "OPEN" || fo.status === "IN_PROGRESS");
   if (!open.length) {
     throw new Error(`Shopify order ${data.order.name} has no open fulfillment orders (already fulfilled or cancelled).`);
   }
+  const matches = open.flatMap((fo) => fo.lineItems.nodes.filter((line) => line.lineItem.id === input.lineItemId && line.remainingQuantity === 1).map((line) => ({ fulfillmentOrderId: fo.id, fulfillmentOrderLineItems: [{ id: line.id, quantity: 1 }] })));
+  if (matches.length !== 1) throw new Error("Project line is unavailable or already fulfilled; reconcile in Shopify");
 
   const result = await adminGraphql<FulfillmentCreateData>(FULFILLMENT_CREATE_MUTATION, {
     fulfillment: {
-      lineItemsByFulfillmentOrder: open.map((fo) => ({ fulfillmentOrderId: fo.id })),
+      lineItemsByFulfillmentOrder: matches,
       trackingInfo: {
         number: input.trackingNumber,
         ...(input.trackingCompany ? { company: input.trackingCompany } : {}),

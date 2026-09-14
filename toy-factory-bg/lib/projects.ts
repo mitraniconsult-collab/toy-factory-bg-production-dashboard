@@ -1,3 +1,4 @@
+import { projectFence, jobContext } from "@/lib/job-context";
 export type ModelKind = "pop" | "mini" | "brick";
 
 export function isModelKind(value: unknown): value is ModelKind {
@@ -79,6 +80,20 @@ export type ToyProject = {
   /** Set once the generated files have been deleted by the retention job. */
   assets_purged_at?: string | null;
   last_error?: string | null;
+  job_id?: string | null;
+  lease_token?: string | null;
+  lease_until?: string | null;
+  job_attempts?: number;
+  retry_count?: number;
+  next_retry_at?: string;
+  last_operation?: string | null;
+  automation_blocked?: boolean;
+  expected_variant_id?: string | null;
+  shopify_line_item_id?: string | null;
+  checkout_url?: string | null;
+  closed_at?: string | null;
+  alert_attempts?: number;
+  alert_next_retry_at?: string;
 };
 
 function supabaseConfig() {
@@ -90,10 +105,11 @@ function supabaseConfig() {
   return { url, key };
 }
 
-async function supabaseRest(path: string, init: RequestInit = {}) {
+export async function supabaseRest(path: string, init: RequestInit = {}) {
   const { url, key } = supabaseConfig();
   const response = await fetch(`${url}/rest/v1/${path}`, {
     ...init,
+    signal: init.signal || AbortSignal.timeout(10_000),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
@@ -125,11 +141,12 @@ export async function createProject(project: ToyProject) {
 export async function updateProject(id: string, patch: Partial<ToyProject>): Promise<ToyProject | null> {
   // Clearing the error re-arms the watchdog so the next failure alerts again.
   const rearm = patch.last_error === null && patch.alert_sent_at === undefined ? { alert_sent_at: null } : {};
-  const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}`, {
+  const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}${projectFence(id)}`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify({ ...patch, ...rearm, updated_at: new Date().toISOString() }),
   })) as ToyProject[];
+  if (!rows?.[0] && jobContext.getStore()?.projectId === id) throw new Error("Project lease lost");
   return rows?.[0] || null;
 }
 
@@ -144,7 +161,7 @@ export async function claimProjectTransition(
   toStatus: ProjectStatus,
   patch: Partial<ToyProject> = {}
 ): Promise<ToyProject | null> {
-  const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(fromStatus)}`;
+  const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(fromStatus)}${projectFence(id)}`;
   const rows = (await supabaseRest(path, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
@@ -169,12 +186,13 @@ export async function listProjectsNeedingAlert(input: { staleStatuses: ProjectSt
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("alert_sent_at", "is.null");
+  params.set("alert_next_retry_at", `lte.${new Date().toISOString()}`);
   params.set(
     "or",
     `(last_error.not.is.null,and(status.in.(${input.staleStatuses.join(",")}),updated_at.lt.${input.staleBefore}))`
   );
   params.set("order", "updated_at.asc");
-  params.set("limit", "50");
+  params.set("limit", "1");
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
 }
 
@@ -191,8 +209,9 @@ export async function listProjectsForRetention(input: {
   params.set("assets_purged_at", "is.null");
   params.set(
     "or",
-    `(and(status.in.(${input.unpaidStatuses.join(",")}),updated_at.lt.${input.unpaidBefore}),` +
-      `and(status.in.(${input.closedStatuses.join(",")}),updated_at.lt.${input.closedBefore}))`
+    `(and(status.in.(${input.unpaidStatuses.join(",")}),created_at.lt.${input.unpaidBefore}),` +
+      `and(status.in.(${input.closedStatuses.join(",")}),closed_at.lt.${input.closedBefore}),` +
+      `and(status.in.(${input.closedStatuses.join(",")}),closed_at.is.null,updated_at.lt.${input.closedBefore}))`
   );
   params.set("order", "updated_at.asc");
   params.set("limit", String(input.limit));
@@ -201,7 +220,7 @@ export async function listProjectsForRetention(input: {
 
 /** Hard-deletes a project row. Only for GDPR erasure requests. */
 export async function deleteProjectRow(id: string) {
-  await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+  await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}${projectFence(id)}`, { method: "DELETE" });
 }
 
 export async function listProjectsByOrderId(orderId: string) {
@@ -248,7 +267,11 @@ export async function listProjectsByStatuses(statuses: ProjectStatus[], limit = 
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("status", `in.(${statuses.join(",")})`);
-  params.set("order", "created_at.asc");
+  params.set("automation_blocked", "eq.false");
+  params.set("assets_purged_at", "is.null");
+  params.set("next_retry_at", `lte.${new Date().toISOString()}`);
+  params.set("or", `(lease_until.is.null,lease_until.lt.${new Date().toISOString()})`);
+  params.set("order", "next_retry_at.asc,created_at.asc");
   params.set("limit", String(limit));
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
 }

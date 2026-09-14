@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createPrototype, type ModelKind } from "@/lib/meshy";
 import { consumeRateLimit, requestClientKey } from "@/lib/rate-limit";
+import { readJson, publicFailure } from "@/lib/http";
+import { issuePreviewAccess } from "@/lib/preview-access";
 
 export const runtime = "nodejs";
 
@@ -36,11 +38,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const body = await readJson(request, MAX_DATA_URI_LENGTH + 512);
     const image = body?.image;
     const modelKind = body?.modelKind;
 
-    if (typeof image !== "string" || !image.startsWith("data:image/")) {
+    if (typeof image !== "string" || !/^data:image\/(jpeg|png|webp);base64,[a-zA-Z0-9+/]+=*$/.test(image)) {
       return NextResponse.json({ error: "Невалидно изображение." }, { status: 400 });
     }
     if (!isModelKind(modelKind)) {
@@ -50,13 +52,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Снимката е твърде голяма." }, { status: 413 });
     }
 
+    const budget = Number(process.env.PREVIEW_GLOBAL_HOURLY_LIMIT || 30);
+    if (!Number.isInteger(budget) || budget < 1) throw new Error("Invalid preview budget");
+    const globalRate = await consumeRateLimit({ scope: "meshy-preview-global", key: "global", windowSeconds: 3600, limit: budget });
+    if (!globalRate.allowed) return NextResponse.json({ error: "Визуализациите временно са заети. Опитай по-късно." }, { status: 429, headers: { "Retry-After": "3600" } });
     const taskId = await createPrototype(modelKind, image);
     return NextResponse.json(
-      { taskId },
+      { taskId, accessToken: issuePreviewAccess(modelKind, taskId) },
       { headers: { "X-RateLimit-Remaining": String(rate.remaining) } }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return publicFailure(error);
   }
 }

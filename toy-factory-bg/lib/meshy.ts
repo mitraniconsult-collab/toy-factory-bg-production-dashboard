@@ -1,3 +1,4 @@
+import { jobContext } from "@/lib/job-context";
 const RESIZE_BASE_URL = "https://api.meshy.ai/openapi/v1/resize";
 const PRINT_BASE_URL = "https://api.meshy.ai/openapi/v1/print/multi-color";
 
@@ -45,6 +46,7 @@ function withWebhook<T extends Record<string, unknown>>(body: T) {
 async function meshyFetch(url: string, init?: RequestInit) {
   const response = await fetch(url, {
     ...init,
+    signal: AbortSignal.any([AbortSignal.timeout(20_000), ...(jobContext.getStore() ? [jobContext.getStore()!.signal] : [])]),
     headers: {
       Authorization: `Bearer ${getApiKey()}`,
       "Content-Type": "application/json",

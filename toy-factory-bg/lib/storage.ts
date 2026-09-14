@@ -1,4 +1,7 @@
+import { jobContext } from "@/lib/job-context";
 const DEFAULT_BUCKET = "toy-assets";
+const MAX_ASSET_BYTES = 160 * 1024 * 1024;
+function storageSignal() { return AbortSignal.any([AbortSignal.timeout(45_000), ...(jobContext.getStore() ? [jobContext.getStore()!.signal] : [])]); }
 const CHUNKED_PREFIX = "chunked:";
 const SINGLE_UPLOAD_THRESHOLD = 24 * 1024 * 1024;
 const CHUNK_SIZE = 5 * 1024 * 1024;
@@ -61,6 +64,7 @@ function isEntityTooLarge(error: unknown) {
 async function putObject(path: string, body: BodyInit, contentType: string) {
   const { url, key, bucket } = storageConfig();
   const upload = await fetch(`${url}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedObjectPath(path)}`, {
+    signal: storageSignal(),
     method: "POST",
     headers: {
       apikey: key,
@@ -84,7 +88,7 @@ async function uploadChunked(path: string, bytes: Uint8Array, contentType: strin
   for (let offset = 0, index = 0; offset < bytes.byteLength; offset += CHUNK_SIZE, index += 1) {
     const end = Math.min(offset + CHUNK_SIZE, bytes.byteLength);
     const partPath = `${path}.parts/${String(index).padStart(4, "0")}`;
-    const partBytes = bytes.slice(offset, end);
+    const partBytes = bytes.subarray(offset, end);
     parts.push({ path: partPath, size: partBytes.byteLength });
     jobs.push({ path: partPath, bytes: partBytes });
   }
@@ -119,7 +123,8 @@ async function uploadChunked(path: string, bytes: Uint8Array, contentType: strin
 }
 
 async function uploadBytes(path: string, bytes: ArrayBuffer | Uint8Array, contentType: string) {
-  const array = new Uint8Array(toArrayBuffer(bytes));
+  const array = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (array.byteLength > MAX_ASSET_BYTES) throw new Error("Asset exceeds storage budget");
 
   // Keep normal Storage objects for small files. Large Meshy GLB/3MF files can
   // exceed a Supabase bucket's per-object limit, so archive them as private
@@ -129,7 +134,7 @@ async function uploadBytes(path: string, bytes: ArrayBuffer | Uint8Array, conten
   }
 
   try {
-    await putObject(path, new Blob([array.buffer], { type: contentType }), contentType);
+    await putObject(path, new Blob([array as Uint8Array<ArrayBuffer>], { type: contentType }), contentType);
     return path;
   } catch (error) {
     if (!isEntityTooLarge(error)) throw error;
@@ -147,19 +152,71 @@ export async function archiveBytes(input: {
   return uploadBytes(path, input.bytes, input.contentType || "application/octet-stream");
 }
 
+export async function downloadBounded(sourceUrl: string) {
+  const response = await fetch(sourceUrl, { cache: "no-store", signal: storageSignal() });
+  if (!response.ok || !response.body) throw new Error(`Could not download asset (${response.status})`);
+  const declared = Number(response.headers.get("content-length"));
+  if (declared > MAX_ASSET_BYTES) { await response.body.cancel(); throw new Error("Asset exceeds memory budget"); }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_ASSET_BYTES) throw new Error("Asset exceeds memory budget");
+      chunks.push(value);
+    }
+  } finally { await reader.cancel().catch(() => undefined); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes;
+}
+
 export async function archiveRemoteAsset(input: {
   projectId: string;
   sourceUrl: string;
   filename: string;
   contentType?: string;
 }) {
-  const remote = await fetch(input.sourceUrl, { cache: "no-store" });
+  const remote = await fetch(input.sourceUrl, { cache: "no-store", signal: storageSignal() });
   if (!remote.ok) throw new Error(`Could not download asset (${remote.status}).`);
 
-  const bytes = await remote.arrayBuffer();
   const contentType = input.contentType || remote.headers.get("content-type") || "application/octet-stream";
   const path = projectAssetPath(input.projectId, input.filename);
-  return uploadBytes(path, bytes, contentType);
+  if (!remote.body) throw new Error("Empty remote asset");
+  // Stream remote GLB/preview to bounded chunks; no full asset buffer.
+  const reader = remote.body.getReader();
+  const parts: ChunkManifest["parts"] = [];
+  let buffer = new Uint8Array(CHUNK_SIZE), used = 0, size = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > MAX_ASSET_BYTES) throw new Error("Asset exceeds storage budget");
+      for (let offset = 0; offset < value.length;) {
+        const count = Math.min(CHUNK_SIZE - used, value.length - offset);
+        buffer.set(value.subarray(offset, offset + count), used); used += count; offset += count;
+        if (used === CHUNK_SIZE) {
+          const partPath = `${path}.parts/${String(parts.length).padStart(4, "0")}`;
+          await putObject(partPath, new Blob([buffer]), "application/octet-stream");
+          parts.push({ path: partPath, size: used }); buffer = new Uint8Array(CHUNK_SIZE); used = 0;
+        }
+      }
+    }
+    if (!parts.length) { await putObject(path, new Blob([buffer.subarray(0, used)]), contentType); return path; }
+    if (used) {
+      const partPath = `${path}.parts/${String(parts.length).padStart(4, "0")}`;
+      await putObject(partPath, new Blob([buffer.subarray(0, used)]), "application/octet-stream");
+      parts.push({ path: partPath, size: used });
+    }
+    const manifestPath = `${path}.manifest.json`;
+    await putObject(manifestPath, JSON.stringify({ version: 1, type: "popme-chunked-asset", contentType, size, parts }), "application/json");
+    return `${CHUNKED_PREFIX}${manifestPath}`;
+  } finally { await reader.cancel().catch(() => undefined); }
 }
 
 async function fetchPrivateObject(path: string) {
@@ -168,6 +225,7 @@ async function fetchPrivateObject(path: string) {
     `${url}/storage/v1/object/authenticated/${encodeURIComponent(bucket)}/${encodedObjectPath(path)}`,
     {
       method: "GET",
+      signal: storageSignal(),
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
@@ -212,24 +270,27 @@ export async function fetchPrivateAsset(path: string) {
   const manifest = await manifestResponse.json().catch(() => null);
   if (!validManifest(manifest)) throw new Error("Invalid chunked asset manifest.");
 
+  let index = 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
+    async pull(controller) {
       try {
-        for (const part of manifest.parts) {
-          const response = await fetchPrivateObject(part.path);
-          if (!response.body) throw new Error(`Storage chunk has no body: ${part.path}`);
-          const reader = response.body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) controller.enqueue(value);
+        while (true) {
+          if (!reader) {
+            if (index >= manifest.parts.length) { controller.close(); return; }
+            const response = await fetchPrivateObject(manifest.parts[index++].path);
+            if (!response.body) throw new Error("Storage chunk has no body");
+            reader = response.body.getReader();
           }
+          const { done, value } = await reader.read();
+          if (done) { reader.releaseLock(); reader = undefined; continue; }
+          controller.enqueue(value); return;
         }
-        controller.close();
       } catch (error) {
         controller.error(error);
       }
     },
+    async cancel() { await reader?.cancel(); },
   });
 
   return new Response(stream, {
@@ -247,6 +308,7 @@ async function deleteObjects(paths: string[]) {
   const { url, key, bucket } = storageConfig();
   const response = await fetch(`${url}/storage/v1/object/${encodeURIComponent(bucket)}`, {
     method: "DELETE",
+    signal: storageSignal(),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
@@ -258,6 +320,15 @@ async function deleteObjects(paths: string[]) {
     const body = await response.text().catch(() => "");
     throw new Error(`Could not delete Storage objects (${response.status})${body ? `: ${body}` : ""}`);
   }
+}
+
+/** Include deterministic staging chunks left by an interrupted upload. */
+export async function deleteProjectUploadRemnants(projectId: string) {
+  const paths = ["preview-image", "model.glb", "model.3mf"].flatMap((name) => {
+    const path = projectAssetPath(projectId, name);
+    return [path, `${path}.manifest.json`, ...Array.from({ length: Math.ceil(MAX_ASSET_BYTES / CHUNK_SIZE) }, (_, i) => `${path}.parts/${String(i).padStart(4, "0")}`)];
+  });
+  await deleteObjects(paths);
 }
 
 /**
@@ -276,9 +347,10 @@ export async function deleteArchivedAsset(path: string) {
   try {
     const manifestResponse = await fetchPrivateObject(manifestPath);
     const manifest = await manifestResponse.json().catch(() => null);
-    if (validManifest(manifest)) parts = manifest.parts;
-  } catch {
-    // Manifest already gone; still try to remove it below.
+    if (!validManifest(manifest)) throw new Error("Invalid manifest; preserve pointer for cleanup");
+    parts = manifest.parts;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("(404)")) throw error;
   }
 
   await deleteObjects([...parts.map((part) => part.path), manifestPath]);
