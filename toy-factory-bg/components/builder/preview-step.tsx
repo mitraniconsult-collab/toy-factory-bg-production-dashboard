@@ -2,7 +2,7 @@
 import type { Builder } from "./use-builder";
 import { MODEL_OPTIONS } from "./image";
 export function PreviewStep(b: Builder) {
- const { modelKind, sourceImage, previewImage, progress, error, consent, setConsent, dragging, setDragging, size, setSize, checkoutLoading, inputRef, selectedModel, price, attemptsLeft, generatePreview, goToCheckout, reset, chooseModelKind, handleInput, handleDrop, catalog } = b;
+ const { modelKind, sourceImage, previewImage, error, size, setSize, checkoutLoading, price, attemptsLeft, generatePreview, goToCheckout, reset, catalog } = b;
     return (
       <section className="pmv2-preview-builder">
         <div className="pmv2-preview-visual-wrap">

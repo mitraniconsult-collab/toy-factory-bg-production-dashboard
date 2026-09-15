@@ -2,7 +2,7 @@
 import type { Builder } from "./use-builder";
 import { MODEL_OPTIONS } from "./image";
 export function UploadStep(b: Builder) {
- const { modelKind, sourceImage, previewImage, progress, error, consent, setConsent, dragging, setDragging, size, setSize, checkoutLoading, inputRef, selectedModel, price, attemptsLeft, generatePreview, goToCheckout, reset, chooseModelKind, handleInput, handleDrop, catalog } = b;
+ const { modelKind, sourceImage, error, dragging, setDragging, inputRef, selectedModel, generatePreview, chooseModelKind, handleInput, handleDrop, catalog } = b;
 
   return (
     <section className="pmv2-builder">
@@ -26,15 +26,6 @@ export function UploadStep(b: Builder) {
             <strong>{selectedModel.name}</strong>
             <span>{selectedModel.copy}</span>
           </div>
-          <label className="pmv2-consent">
-            <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-            <span>
-              Имам право да използвам тази снимка (ако на нея има дете, аз съм негов родител или настойник) и съм
-              съгласен/на тя да бъде обработена за създаване на фигурката съгласно{" "}
-              <a href="/privacy" target="_blank" rel="noreferrer">Политиката за поверителност</a> и{" "}
-              <a href="/terms" target="_blank" rel="noreferrer">Общите условия</a>.
-            </span>
-          </label>
         </div>
 
         <div className="pmv2-upload-panel">
@@ -61,13 +52,18 @@ export function UploadStep(b: Builder) {
             )}
           </div>
           <p className="pmv2-photo-tip">Най-добър резултат: цял ръст, добро осветление и видимо лице.</p>
+          <p className="pmv2-photo-legal">
+            С качването потвърждаваш, че имаш право да използваш снимката и приемаш{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer">Политиката за поверителност</a> и{" "}
+            <a href="/terms" target="_blank" rel="noreferrer">Общите условия</a>.
+          </p>
           {error && <div className="pmv2-error" role="alert">{error}</div>}
         </div>
       </div>
 
       <div className="pmv2-generate-bar">
         <div><span>СТИЛ</span><strong>{modelKind.toUpperCase()}</strong><small> · цени от €{catalog[0].price}</small></div>
-        <button type="button" disabled={!sourceImage || !consent} onClick={() => generatePreview(false)}>ГЕНЕРИРАЙ МОЯТА {modelKind.toUpperCase()} →</button>
+        <button type="button" disabled={!sourceImage} onClick={() => generatePreview(false)}>ГЕНЕРИРАЙ МОЯТА {modelKind.toUpperCase()} →</button>
       </div>
     </section>
   );

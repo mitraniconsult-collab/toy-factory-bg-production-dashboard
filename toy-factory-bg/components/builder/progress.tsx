@@ -2,7 +2,7 @@
 import type { Builder } from "./use-builder";
 import { MODEL_OPTIONS } from "./image";
 export function GenerationProgress(b: Builder) {
- const { modelKind, sourceImage, previewImage, progress, error, consent, setConsent, dragging, setDragging, size, setSize, checkoutLoading, inputRef, selectedModel, price, attemptsLeft, generatePreview, goToCheckout, reset, chooseModelKind, handleInput, handleDrop, catalog } = b;
+ const { modelKind, progress, error, selectedModel } = b;
     return (
       <section className="pmv2-builder pmv2-generating">
         <div className="pmv2-progress-copy">

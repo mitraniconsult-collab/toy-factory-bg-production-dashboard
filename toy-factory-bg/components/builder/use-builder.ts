@@ -11,7 +11,6 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [consent, setConsent] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [size, setSize] = useState("15");
   const [regenerations, setRegenerations] = useState(0);
@@ -63,7 +62,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
     const saved = readDraft();
     const selected = new URLSearchParams(window.location.search).get("style");
     if (saved && (!selected || selected === saved.modelKind)) {
-      setDraft(saved); setModelKind(saved.modelKind); setRegenerations(saved.regenerations); setConsent(true);
+      setDraft(saved); setModelKind(saved.modelKind); setRegenerations(saved.regenerations);
       void resume(saved);
     } else {
       if (isModelKind(selected)) setModelKind(selected);
@@ -88,7 +87,7 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
   }
   async function generatePreview(isRegeneration = false) {
     if (running.current) return;
-    if (!sourceImage || !consent) return fail(new Error("Качи снимка и потвърди правото си да я използваш."));
+    if (!sourceImage) return fail(new Error("Качи снимка, за да започнеш."));
     if (isRegeneration && regenerations >= 2) return fail(new Error("Използва двата допълнителни опита."));
     running.current = true; controller.current = new AbortController(); dispatch({ type: "START" }); setPreviewImage(null);
     requestId.current = isRegeneration ? submissionId(true) : requestId.current || submissionId();
@@ -115,9 +114,9 @@ export function useBuilder(catalog: CatalogItem[], initialView: "upload" | "prev
     } catch (e) { fail(e); }
     finally { running.current = false; }
   }
-  function reset() { controller.current?.abort(); running.current = false; writeDraft(null); void photoStore(null); setSourceImage(null); setPreviewImage(null); setDraft(null); setRegenerations(0); setConsent(false); setNotice(""); dispatch({ type: "RESET" }); window.history.replaceState({}, "", `/create?style=${modelKind}`); }
+  function reset() { controller.current?.abort(); running.current = false; writeDraft(null); void photoStore(null); setSourceImage(null); setPreviewImage(null); setDraft(null); setRegenerations(0); setNotice(""); dispatch({ type: "RESET" }); window.history.replaceState({}, "", `/create?style=${modelKind}`); }
   function chooseModelKind(value: ModelKind) { requestId.current = submissionId(true); setModelKind(value); setPreviewImage(null); setDraft(null); writeDraft(null); setRegenerations(0); dispatch({ type: "RESET" }); }
-  return { catalog, step: state.phase, progress: state.progress, error: state.error, notice, modelKind, sourceImage, previewImage, consent, setConsent, dragging, setDragging, size, setSize, hydrated, inputRef, selectedModel, price, attemptsLeft: Math.max(0, 2-regenerations), checkoutLoading: state.phase === "checkout", draft, resume, generatePreview, goToCheckout, reset, chooseModelKind,
+  return { catalog, step: state.phase, progress: state.progress, error: state.error, notice, modelKind, sourceImage, previewImage, dragging, setDragging, size, setSize, hydrated, inputRef, selectedModel, price, attemptsLeft: Math.max(0, 2-regenerations), checkoutLoading: state.phase === "checkout", draft, resume, generatePreview, goToCheckout, reset, chooseModelKind,
     previewError: () => { setPreviewImage(null); fail(new Error("Изображението е изтекло. Провери визуализацията отново.")); },
     handleInput: (e: ChangeEvent<HTMLInputElement>) => acceptFile(e.target.files?.[0]), handleDrop: (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragging(false); void acceptFile(e.dataTransfer.files?.[0]); } };
 }
