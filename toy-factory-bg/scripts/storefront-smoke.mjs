@@ -40,7 +40,6 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Home overflow at ${width}`);
     await page.goto(`${origin}/create`);
     await page.locator('input[type="file"]').setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6z2QAAAAASUVORK5CYII=", "base64") });
-    await page.getByRole("checkbox").check();
     await page.screenshot({ path: `test-results/upload-${width}.png`, fullPage: true });
     await page.getByRole("button", { name: /ГЕНЕРИРАЙ МОЯТА/ }).click();
     await page.getByRole("progressbar").waitFor();
