@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     });
     return NextResponse.json({ ok: true, count: results.length, results, alerts });
   } catch (error) {
+    console.error("cron sync failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Cron sync failed" }, { status: 500 });
   }
 }
