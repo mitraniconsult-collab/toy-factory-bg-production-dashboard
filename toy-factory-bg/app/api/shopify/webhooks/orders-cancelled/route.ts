@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listProjectsByOrderId, ProjectStatus, updateProject } from "@/lib/projects";
+import { listProjectsByOrderId, ProjectStatus, updateProject, supabaseRest } from "@/lib/projects";
+import { withProjectJob } from "@/lib/jobs";
 import {
   readShopifyWebhookHeaders,
   shopifyOrderGid,
@@ -85,17 +86,20 @@ export async function POST(request: NextRequest) {
     : shopifyOrderGid(payload);
   if (!orderId) return new NextResponse("No order id", { status: 200 });
 
+  // Persist even when cancellation/refund arrives before orders/paid.
+  await supabaseRest("shopify_order_holds?on_conflict=order_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates" }, body: JSON.stringify({ order_id: orderId, reason: topic }) });
   const projects = await listProjectsByOrderId(orderId);
   if (!projects.length) return new NextResponse("No toy projects for order", { status: 200 });
 
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
   const results: { projectId: string; from: ProjectStatus; to: ProjectStatus; note: string }[] = [];
 
-  for (const project of projects) {
+  for (const snapshot of projects) {
+    await withProjectJob(snapshot.id, async (project) => {
     // Idempotency: the same webhook delivery may be retried by Shopify.
     if (project.shopify_webhook_id && webhookId && project.shopify_webhook_id === webhookId) {
       results.push({ projectId: project.id, from: project.status, to: project.status, note: "duplicate delivery" });
-      continue;
+      return;
     }
 
     let note: string;
@@ -116,12 +120,15 @@ export async function POST(request: NextRequest) {
     if (note !== "already cancelled") {
       await updateProject(project.id, {
         status: nextStatus,
+        automation_blocked: true,
+        ...(nextStatus === "CANCELLED" ? { closed_at: new Date().toISOString() } : {}),
         last_error: note,
         shopify_webhook_id: webhookId || project.shopify_webhook_id || null,
       });
     }
 
     results.push({ projectId: project.id, from: project.status, to: nextStatus, note });
+    }, true);
   }
 
   console.info(`shopify ${topic}`, { order: payload.name || orderId, results });

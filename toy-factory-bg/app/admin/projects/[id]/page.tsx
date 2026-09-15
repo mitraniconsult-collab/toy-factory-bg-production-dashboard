@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ProjectActions } from "@/components/admin/admin-actions";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
-import { getProject } from "@/lib/projects";
+import { getProject, listProjectEvents } from "@/lib/projects";
 import { STATUS_META } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
@@ -14,17 +14,20 @@ function date(value?: string | null) {
 function shortId(id: string) { return id.slice(0, 8).toUpperCase(); }
 function modelLabel(value?: string | null) { return (value || "pop").toUpperCase(); }
 
-export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ before?: string }> }) {
   if (!(await isAdminAuthenticated())) redirect("/admin");
   const { id } = await params;
   const project = await getProject(id);
   if (!project) notFound();
+  const before = (await searchParams).before;
+  const allEvents = await listProjectEvents(id, before);
+  const events = allEvents.slice(0, 30);
   const meta = STATUS_META[project.status];
   const model = modelLabel(project.model_kind);
 
   const canRecoverGlb = Boolean(project.glb_storage_path || project.resize_task_id || project.build_task_id || project.glb_url);
   const hasArchivedThreeMf = Boolean(project.three_mf_storage_path);
-  const canRegenerateThreeMf = Boolean(!hasArchivedThreeMf && canRecoverGlb && project.status !== "PRINT_FILE_GENERATING");
+  const canRegenerateThreeMf = Boolean(!hasArchivedThreeMf && project.glb_storage_path && ["READY_FOR_PRINT", "PRINT_FILE_FAILED"].includes(project.status) && !project.automation_blocked && !project.assets_purged_at);
   const glbLink = canRecoverGlb ? `/api/admin/projects/${project.id}/asset?kind=glb` : null;
   const threeMfLink = hasArchivedThreeMf ? `/api/admin/projects/${project.id}/asset?kind=3mf` : null;
   const previewLink = `/api/admin/projects/${project.id}/preview`;
@@ -82,6 +85,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <div><dt>Paid</dt><dd>{date(project.paid_at)}</dd></div>
             <div><dt>Created</dt><dd>{date(project.created_at)}</dd></div>
             <div><dt>Updated</dt><dd>{date(project.updated_at)}</dd></div>
+            <div><dt>Retry / job claims</dt><dd>{project.retry_count || 0} / {project.job_attempts || 0}</dd></div>
+            <div><dt>Последна операция</dt><dd>{project.last_operation || "—"}</dd></div>
+            <div><dt>Job ID</dt><dd>{project.job_id || "—"}</dd></div>
+            <div><dt>Следваща проверка</dt><dd>{date(project.next_retry_at)}</dd></div>
+            <div><dt>Shopify fulfillment</dt><dd>{project.shopify_fulfillment_id || "Не е потвърден"}</dd></div>
+            <div><dt>Клиентски имейл</dt><dd>{project.shopify_fulfillment_id ? "Поискан чрез Shopify; доставка непотвърдена" : "Не е поискан от приложението"}</dd></div>
+            <div><dt>Watchdog alert</dt><dd>{project.alert_sent_at ? `Изпратен ${date(project.alert_sent_at)}` : `Не е потвърден · опити ${project.alert_attempts || 0}`}</dd></div>
           </dl>
         </div>
 
@@ -95,9 +105,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             trackingCompany={project.tracking_company}
             fulfillmentId={project.shopify_fulfillment_id}
             canRegenerateThreeMf={canRegenerateThreeMf}
+            blocked={Boolean(project.automation_blocked || project.assets_purged_at)}
           />
         </div>
       </section>
+      <section className="project-card event-history"><h2>История на проекта</h2><ol>{events.map((event) => <li key={event.id}><time>{date(event.created_at)}</time><strong>{event.from_status ? `${event.from_status} → ` : ""}{event.to_status}</strong><span>{event.operation || "Промяна на статус"}</span><small>Job: {event.job_id || "—"}</small></li>)}</ol>{!events.length && <p>Няма записани събития за този период. Историята започва след новата миграция.</p>}<nav className="admin-pagination">{before && <Link href={`/admin/projects/${id}`}>Най-нови</Link>}{allEvents.length > 30 && <Link href={`/admin/projects/${id}?before=${events.at(-1)!.id}`}>По-стари събития →</Link>}</nav></section>
     </main>
   );
 }

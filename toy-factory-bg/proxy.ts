@@ -7,8 +7,8 @@ import { verifyAdminSession } from "@/lib/admin-auth";
  * non-exploitable by rejecting unauthenticated requests before they reach the
  * handler.
  *
- * Runs on the Edge runtime, so it only verifies the signed cookie (HMAC via
- * Web Crypto) — no database or Node APIs.
+ * Next.js Proxy runs in Node. Only verifies the signed cookie here;
+ * per-handler authorization remains mandatory.
  */
 
 const COOKIE_NAME = "toy_admin_session";
@@ -16,7 +16,7 @@ const COOKIE_NAME = "toy_admin_session";
 // Reachable without a session: the login page and the login/logout endpoints.
 const PUBLIC_ADMIN_PATHS = new Set(["/admin", "/api/admin/login", "/api/admin/logout"]);
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC_ADMIN_PATHS.has(pathname)) return NextResponse.next();
 

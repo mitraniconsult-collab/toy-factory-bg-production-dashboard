@@ -1,3 +1,5 @@
+import { getCatalog } from "@/lib/catalog";
+import { siteUrl } from "@/lib/site";
 import { LEGAL_LINKS, MERCHANT } from "@/lib/legal";
 
 const styles = [
@@ -6,7 +8,7 @@ const styles = [
     key: "pop",
     subtitle: "Vinyl collectible",
     copy: "Vinyl визия с по-голяма глава и силен колекционерски характер.",
-    image: "/marketing/pop.svg",
+    image: "/marketing/pop-card.svg",
     tone: "coral",
     badge: "КЛАСИКА",
   },
@@ -45,16 +47,20 @@ const faqs = [
   ],
   [
     "Какво става със снимката ми?",
-    "Използва се само за твоята фигурка — не за реклама и не за обучение на AI. Файловете по неплатени поръчки се трият след 7 дни, по платени — 90 дни след изпращането. Подробно в Политиката за поверителност.",
+    "Използва се за създаване на твоята фигурка чрез услугите, описани в Политиката за поверителност. Файловете по неплатени поръчки се трият след 7 дни, по платени — 90 дни след изпращането. Подробно в Политиката за поверителност.",
   ],
 ];
 
 export default function Home() {
+  const catalog = getCatalog();
+  const origin = siteUrl();
+  const product = { "@context": "https://schema.org", "@type": "Product", name: "POPME персонализирана 3D фигурка", description: "POP, MINI или BRICK фигурка по снимка, в размер 10, 15 или 20 cm.", brand: { "@type": "Brand", name: "POPME" }, offers: catalog.map((item) => ({ "@type": "Offer", name: `${item.size} cm`, price: item.price, priceCurrency: "EUR", url: `${origin}/create` })) };
   return (
     <main className="pmv2-site">
+      {origin && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(product).replace(/</g, "\\u003c") }} />}
       <div className="pmv2-announcement">
         <strong>ВИЖДАШ ФИГУРКАТА СИ, ПРЕДИ ДА ПЛАТИШ</strong>
-        <span>СТАРТОВИ ЦЕНИ ОТ €49</span>
+        <span>СТАРТОВИ ЦЕНИ ОТ €{catalog[0].price}</span>
       </div>
 
       <header className="pmv2-header" id="top">
@@ -77,7 +83,7 @@ export default function Home() {
           <p className="pmv2-hero-lead">Превръщаме твоя снимка в персонализирана POP, MINI или BRICK 3D колекционерска фигурка.</p>
           <div className="pmv2-hero-actions">
             <a className="pmv2-primary" href="/create">СЪЗДАЙ СВОЯТА ФИГУРКА →</a>
-            <div className="pmv2-start-price"><span>СТАРТОВА ЦЕНА</span><strong>от €49</strong></div>
+            <div className="pmv2-start-price"><span>СТАРТОВА ЦЕНА</span><strong>от €{catalog[0].price}</strong></div>
           </div>
           <div className="pmv2-micro-trust">
             <span>◷ Плащаш след одобрение</span>
@@ -89,7 +95,7 @@ export default function Home() {
           <div className="pmv2-stage-glow" />
           <div className="pmv2-stage-shadow" />
           <a className="pmv2-figure pmv2-figure-pop" href="/create?style=pop">
-            <img src="/marketing/pop.svg" alt="Примерна POP фигурка" />
+            <img src="/marketing/pop-card.svg" alt="Примерна POP фигурка" />
             <b>POP</b>
           </a>
           <a className="pmv2-figure pmv2-figure-mini" href="/create?style=mini">
@@ -108,7 +114,7 @@ export default function Home() {
         <span>PREVIEW ПРЕДИ ПЛАЩАНЕ</span>
         <span>3D ПЕЧАТ ПО ПОРЪЧКА</span>
         <span>ДО 2 НОВИ ОПИТА</span>
-        <span>ИЗРАБОТКА {MERCHANT.productionDays} РАБОТНИ ДНИ</span>
+        <span>ПЕРСОНАЛИЗИРАНА ИЗРАБОТКА</span>
       </section>
 
       <section className="pmv2-styles" id="styles">
@@ -124,7 +130,7 @@ export default function Home() {
                 <img src={style.image} alt={`${style.name} стил POPME фигурка`} />
               </div>
               <div className="pmv2-style-body">
-                <div className="pmv2-style-heading"><div><h3>{style.name}</h3><small>{style.subtitle}</small></div><strong>от €49</strong></div>
+                <div className="pmv2-style-heading"><div><h3>{style.name}</h3><small>{style.subtitle}</small></div><strong>от €{catalog[0].price}</strong></div>
                 <p>{style.copy}</p>
                 <div className="pmv2-size-chips"><span>10 cm</span><span>15 cm</span><span>20 cm</span></div>
                 <a href={`/create?style=${style.key}`}>ИЗБЕРИ {style.name} →</a>
@@ -155,7 +161,7 @@ export default function Home() {
           <div className="pmv2-proof-flow" aria-label="Снимка към preview към фигурка">
             <figure><div className="pmv2-proof-placeholder"><span>ТВОЯТА<br />СНИМКА</span></div><figcaption>01 · СНИМКА</figcaption></figure>
             <figure><div className="pmv2-proof-preview"><img src="/marketing/mini.svg" alt="Примерна MINI визуализация" /></div><figcaption>02 · PREVIEW</figcaption></figure>
-            <figure><div className="pmv2-proof-product"><img src="/marketing/pop.svg" alt="Примерна готова фигурка" /></div><figcaption>03 · POPME</figcaption></figure>
+            <figure><div className="pmv2-proof-product"><img src="/marketing/pop-card.svg" alt="Примерна готова фигурка" /></div><figcaption>03 · POPME</figcaption></figure>
           </div>
         </div>
       </section>
@@ -174,7 +180,7 @@ export default function Home() {
 
       <section className="pmv2-final">
         <div><p>ГОТОВ ЛИ СИ?</p><h2>Една снимка.<br />Твоята фигурка.</h2></div>
-        <div className="pmv2-final-action"><strong>от €49</strong><a href="/create">СЪЗДАЙ СВОЯТА →</a></div>
+        <div className="pmv2-final-action"><strong>от €{catalog[0].price}</strong><a href="/create">СЪЗДАЙ СВОЯТА →</a></div>
       </section>
 
       <footer className="pmv2-footer">
@@ -194,7 +200,7 @@ export default function Home() {
         <small>© 2026 {MERCHANT.brand}</small>
       </footer>
 
-      <a className="pmv2-mobile-cta" href="/create"><span>СЪЗДАЙ ФИГУРКА</span><strong>от €49 →</strong></a>
+      <a className="pmv2-mobile-cta" href="/create"><span>СЪЗДАЙ ФИГУРКА</span><strong>от €{catalog[0].price} →</strong></a>
     </main>
   );
 }

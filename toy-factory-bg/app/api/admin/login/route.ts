@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { setAdminSessionCookie, verifyAdminPassword } from "@/lib/admin-auth";
 import { consumeRateLimit, requestClientKey } from "@/lib/rate-limit";
+import { readJson, publicFailure } from "@/lib/http";
 
 export const runtime = "nodejs";
 
@@ -24,13 +25,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const body = await readJson(request);
     if (!verifyAdminPassword(String(body?.password || ""))) {
       return NextResponse.json({ error: "Грешна парола." }, { status: 401 });
     }
     await setAdminSessionCookie();
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed" }, { status: 500 });
+    return publicFailure(error);
   }
 }

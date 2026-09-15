@@ -25,6 +25,8 @@ export const LEGAL_LINKS = [
   { href: "/privacy", label: "Поверителност" },
 ] as const;
 
+export const LAUNCH_BLOCKERS = Object.entries(MERCHANT).filter(([, value]) => String(value).includes("[[")).map(([key]) => key);
+
 /** Third parties that process customer data for the service. */
 export const PROCESSORS = [
   { name: "Meshy (Meshy AI)", role: "генерира 3D визуализацията и модела от снимката", location: "САЩ" },

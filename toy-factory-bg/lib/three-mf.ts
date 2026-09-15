@@ -232,7 +232,13 @@ export function resizeThreeMfToHeight(
     throw new Error("Invalid 3MF target height.");
   }
 
-  const archive = unzipSync(input);
+  let expanded = 0;
+  let entries = 0;
+  const archive = unzipSync(input, { filter(file) {
+    expanded += file.originalSize;
+    if (++entries > 2048 || expanded > 384 * 1024 * 1024) throw new ThreeMfUnsupportedError("archive exceeds processing budget");
+    return true;
+  } });
   const parts = resolveParts(archive);
 
   const bounds: Bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], count: 0 };

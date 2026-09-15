@@ -1,6 +1,7 @@
 import { getMultiColorPrint, getResize, getTask } from "@/lib/meshy";
 import { ToyProject, updateProject } from "@/lib/projects";
-import { archiveBytes, archiveRemoteAsset } from "@/lib/storage";
+import { archiveBytes, archiveRemoteAsset, downloadBounded } from "@/lib/storage";
+import { withProjectJob } from "@/lib/jobs";
 import { bambuTargetFromEnv, resizeThreeMfToHeight } from "@/lib/three-mf";
 
 export type RecoverableAssetKind = "preview" | "glb" | "3mf";
@@ -57,6 +58,8 @@ async function freshThreeMfUrl(project: ToyProject) {
 }
 
 export async function ensureProjectAssetArchived(project: ToyProject, kind: RecoverableAssetKind) {
+  return withProjectJob(project.id, async (project) => {
+  if (project.assets_purged_at || project.last_operation === "asset-purge") throw new Error("Project assets have been permanently purged.");
   if (kind === "preview") {
     if (project.preview_storage_path) return project.preview_storage_path;
     const sourceUrl = await freshPreviewUrl(project);
@@ -90,9 +93,7 @@ export async function ensureProjectAssetArchived(project: ToyProject, kind: Reco
   const sourceUrl = await freshThreeMfUrl(project);
   if (!sourceUrl) throw new Error("3MF source is no longer available from this legacy project.");
 
-  const remote = await fetch(sourceUrl, { cache: "no-store" });
-  if (!remote.ok) throw new Error(`Could not recover legacy 3MF from Meshy (${remote.status}).`);
-  const sourceBytes = new Uint8Array(await remote.arrayBuffer());
+  const sourceBytes = await downloadBounded(sourceUrl);
   const resized = resizeThreeMfToHeight(sourceBytes, project.size_cm * 10, {
     bambuTarget: bambuTargetFromEnv(),
   });
@@ -108,4 +109,5 @@ export async function ensureProjectAssetArchived(project: ToyProject, kind: Reco
     ...(resized.palette.length ? { print_palette: resized.palette } : {}),
   });
   return path;
+  }, true);
 }

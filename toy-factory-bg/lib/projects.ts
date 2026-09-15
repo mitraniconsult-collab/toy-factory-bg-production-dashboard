@@ -1,3 +1,4 @@
+import { projectFence, jobContext } from "@/lib/job-context";
 export type ModelKind = "pop" | "mini" | "brick";
 
 export function isModelKind(value: unknown): value is ModelKind {
@@ -49,7 +50,7 @@ export type ToyProject = {
   updated_at?: string;
   model_kind: ModelKind;
   prototype_task_id: string;
-  preview_url: string;
+  preview_url: string | null;
   preview_storage_path?: string | null;
   size_cm: number;
   price_eur: number;
@@ -79,6 +80,21 @@ export type ToyProject = {
   /** Set once the generated files have been deleted by the retention job. */
   assets_purged_at?: string | null;
   last_error?: string | null;
+  job_id?: string | null;
+  lease_token?: string | null;
+  lease_until?: string | null;
+  job_attempts?: number;
+  retry_count?: number;
+  next_retry_at?: string;
+  last_operation?: string | null;
+  automation_blocked?: boolean;
+  expected_variant_id?: string | null;
+  shopify_line_item_id?: string | null;
+  checkout_url?: string | null;
+  closed_at?: string | null;
+  alert_attempts?: number;
+  alert_next_retry_at?: string;
+  status_changed_at?: string;
 };
 
 function supabaseConfig() {
@@ -90,10 +106,11 @@ function supabaseConfig() {
   return { url, key };
 }
 
-async function supabaseRest(path: string, init: RequestInit = {}) {
+export async function supabaseRest(path: string, init: RequestInit = {}) {
   const { url, key } = supabaseConfig();
   const response = await fetch(`${url}/rest/v1/${path}`, {
     ...init,
+    signal: init.signal || AbortSignal.timeout(10_000),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
@@ -122,14 +139,15 @@ export async function createProject(project: ToyProject) {
   return rows[0];
 }
 
-export async function updateProject(id: string, patch: Partial<ToyProject>) {
+export async function updateProject(id: string, patch: Partial<ToyProject>): Promise<ToyProject | null> {
   // Clearing the error re-arms the watchdog so the next failure alerts again.
   const rearm = patch.last_error === null && patch.alert_sent_at === undefined ? { alert_sent_at: null } : {};
-  const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}`, {
+  const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}${projectFence(id)}`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify({ ...patch, ...rearm, updated_at: new Date().toISOString() }),
   })) as ToyProject[];
+  if (!rows?.[0] && jobContext.getStore()?.projectId === id) throw new Error("Project lease lost");
   return rows?.[0] || null;
 }
 
@@ -143,8 +161,8 @@ export async function claimProjectTransition(
   fromStatus: ProjectStatus,
   toStatus: ProjectStatus,
   patch: Partial<ToyProject> = {}
-) {
-  const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(fromStatus)}`;
+): Promise<ToyProject | null> {
+  const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.${encodeURIComponent(fromStatus)}${projectFence(id)}`;
   const rows = (await supabaseRest(path, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
@@ -157,7 +175,7 @@ export async function claimProjectTransition(
   return rows?.[0] || null;
 }
 
-export async function getProject(id: string) {
+export async function getProject(id: string): Promise<ToyProject | null> {
   const rows = (await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}&select=*`, {
     method: "GET",
   })) as ToyProject[];
@@ -169,12 +187,13 @@ export async function listProjectsNeedingAlert(input: { staleStatuses: ProjectSt
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("alert_sent_at", "is.null");
+  params.set("alert_next_retry_at", `lte.${new Date().toISOString()}`);
   params.set(
     "or",
-    `(last_error.not.is.null,and(status.in.(${input.staleStatuses.join(",")}),updated_at.lt.${input.staleBefore}))`
+    `(last_error.not.is.null,and(status.in.(${input.staleStatuses.join(",")}),status_changed_at.lt.${input.staleBefore}))`
   );
   params.set("order", "updated_at.asc");
-  params.set("limit", "50");
+  params.set("limit", "1");
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
 }
 
@@ -191,8 +210,9 @@ export async function listProjectsForRetention(input: {
   params.set("assets_purged_at", "is.null");
   params.set(
     "or",
-    `(and(status.in.(${input.unpaidStatuses.join(",")}),updated_at.lt.${input.unpaidBefore}),` +
-      `and(status.in.(${input.closedStatuses.join(",")}),updated_at.lt.${input.closedBefore}))`
+    `(and(status.in.(${input.unpaidStatuses.join(",")}),created_at.lt.${input.unpaidBefore}),` +
+      `and(status.in.(${input.closedStatuses.join(",")}),closed_at.lt.${input.closedBefore}),` +
+      `and(status.in.(${input.closedStatuses.join(",")}),closed_at.is.null,updated_at.lt.${input.closedBefore}))`
   );
   params.set("order", "updated_at.asc");
   params.set("limit", String(input.limit));
@@ -201,7 +221,7 @@ export async function listProjectsForRetention(input: {
 
 /** Hard-deletes a project row. Only for GDPR erasure requests. */
 export async function deleteProjectRow(id: string) {
-  await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+  await supabaseRest(`toy_projects?id=eq.${encodeURIComponent(id)}${projectFence(id)}`, { method: "DELETE" });
 }
 
 export async function listProjectsByOrderId(orderId: string) {
@@ -223,14 +243,24 @@ export async function findProjectByTaskId(taskId: string) {
   return rows?.[0] || null;
 }
 
-export async function listProjects(input: { status?: ProjectStatus; q?: string; limit?: number } = {}) {
+export async function listProjects(input: { status?: ProjectStatus; statuses?: ProjectStatus[]; q?: string; limit?: number; page?: number; style?: string; size?: string; from?: string; to?: string; issue?: string } = {}) {
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("order", "created_at.desc");
-  params.set("limit", String(Math.min(Math.max(input.limit || 100, 1), 250)));
+  params.set("limit", "26"); // one look-ahead row, never sampled dashboard totals
+  params.set("offset", String((Math.max(1, Math.min(100000, input.page || 1)) - 1) * 25));
   if (input.status) params.set("status", `eq.${input.status}`);
+  else if (input.statuses) params.set("status", `in.(${input.statuses.join(",")})`);
+  if (input.style && ["pop", "mini", "brick"].includes(input.style)) params.set("model_kind", `eq.${input.style}`);
+  if (input.size && ["10", "15", "20"].includes(input.size)) params.set("size_cm", `eq.${input.size}`);
+  const and: string[] = [];
+  if (input.from && /^\d{4}-\d{2}-\d{2}$/.test(input.from)) and.push(`created_at.gte.${input.from}T00:00:00Z`);
+  if (input.to && /^\d{4}-\d{2}-\d{2}$/.test(input.to)) and.push(`created_at.lte.${input.to}T23:59:59.999Z`);
+  if (input.issue === "any") and.push("or(last_error.not.is.null,automation_blocked.eq.true)");
+  if (input.issue === "held") params.set("automation_blocked", "eq.true");
+  if (input.issue === "retry") params.set("retry_count", "gt.0");
   if (input.q?.trim()) {
-    const q = input.q.trim().replace(/[,*()]/g, "");
+    const q = input.q.trim().replace(/[^\p{L}\p{N}@. _-]/gu, "").slice(0, 150);
     const filters = [
       `shopify_order_name.ilike.*${q}*`,
       `customer_name.ilike.*${q}*`,
@@ -239,16 +269,28 @@ export async function listProjects(input: { status?: ProjectStatus; q?: string; 
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(q)) {
       filters.push(`id.eq.${q}`);
     }
-    params.set("or", `(${filters.join(",")})`);
+    and.push(`or(${filters.join(",")})`);
   }
+  if (and.length) params.set("and", `(${and.join(",")})`);
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
+}
+
+export type ProductionEvent = { id: number; created_at: string; from_status: string | null; to_status: string; operation: string | null; job_id: string | null };
+export async function listProjectEvents(id: string, before?: string) {
+  const params = new URLSearchParams({ project_id: `eq.${id}`, select: "id,created_at,from_status,to_status,operation,job_id", order: "id.desc", limit: "31" });
+  if (before && /^\d+$/.test(before)) params.set("id", `lt.${before}`);
+  return await supabaseRest(`production_events?${params}`) as ProductionEvent[];
 }
 
 export async function listProjectsByStatuses(statuses: ProjectStatus[], limit = 50) {
   const params = new URLSearchParams();
   params.set("select", "*");
   params.set("status", `in.(${statuses.join(",")})`);
-  params.set("order", "created_at.asc");
+  params.set("automation_blocked", "eq.false");
+  params.set("assets_purged_at", "is.null");
+  params.set("next_retry_at", `lte.${new Date().toISOString()}`);
+  params.set("or", `(lease_until.is.null,lease_until.lt.${new Date().toISOString()})`);
+  params.set("order", "next_retry_at.asc,created_at.asc");
   params.set("limit", String(limit));
   return (await supabaseRest(`toy_projects?${params.toString()}`, { method: "GET" })) as ToyProject[];
 }
@@ -265,7 +307,7 @@ export async function claimProjectForPaidOrder(
     | "customer_email"
     | "shipping_city"
   >
-) {
+): Promise<ToyProject | null> {
   const path = `toy_projects?id=eq.${encodeURIComponent(id)}&status=eq.CHECKOUT_CREATED`;
   const rows = (await supabaseRest(path, {
     method: "PATCH",

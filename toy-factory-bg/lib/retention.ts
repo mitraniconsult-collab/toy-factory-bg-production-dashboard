@@ -1,10 +1,12 @@
-import { deleteArchivedAsset } from "@/lib/storage";
+import { deleteArchivedAsset, deleteProjectUploadRemnants } from "@/lib/storage";
+import { withProjectJob } from "@/lib/jobs";
 import {
   deleteProjectRow,
   listProjectsForRetention,
   ProjectStatus,
   ToyProject,
   updateProject,
+  supabaseRest,
 } from "@/lib/projects";
 
 /**
@@ -33,6 +35,9 @@ const ASSET_FIELDS = [
 
 /** Deletes every archived file of a project and clears the pointers. */
 export async function purgeProjectAssets(project: ToyProject) {
+  return withProjectJob(project.id, async (project) => {
+  // Revoke production access before the first destructive storage operation.
+  await updateProject(project.id, { automation_blocked: true, last_operation: "asset-purge" });
   const deleted: string[] = [];
   const failed: Array<{ path: string; error: string }> = [];
   const patch: Record<string, unknown> = {};
@@ -53,14 +58,19 @@ export async function purgeProjectAssets(project: ToyProject) {
   patch.preview_url = null;
   patch.glb_url = null;
   patch.three_mf_url = null;
-  if (!failed.length) patch.assets_purged_at = new Date().toISOString();
+  if (!failed.length) {
+    try { await deleteProjectUploadRemnants(project.id); patch.assets_purged_at = new Date().toISOString(); }
+    catch { failed.push({ path: "upload-remnants", error: "Storage cleanup failed" }); }
+  }
 
   await updateProject(project.id, patch as Partial<ToyProject>);
   return { deleted, failed };
+  }, true);
 }
 
-export async function runRetention(limit = 50) {
+export async function runRetention(limit = 1) {
   const now = Date.now();
+  await supabaseRest(`prototype_submissions?created_at=lt.${new Date(now - 7 * 86400000).toISOString()}`, { method: "DELETE" });
   const projects = await listProjectsForRetention({
     unpaidStatuses: UNPAID_STATUSES,
     unpaidBefore: new Date(now - RETENTION_UNPAID_DAYS * 86_400_000).toISOString(),
@@ -87,6 +97,7 @@ export async function runRetention(limit = 50) {
 
 /** Full erasure for a GDPR request: files plus the database row. */
 export async function eraseProject(project: ToyProject) {
+  return withProjectJob(project.id, async (project) => {
   const outcome = await purgeProjectAssets(project);
   if (outcome.failed.length) {
     throw new Error(
@@ -95,4 +106,5 @@ export async function eraseProject(project: ToyProject) {
   }
   await deleteProjectRow(project.id);
   return outcome.deleted;
+  }, true);
 }

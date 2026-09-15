@@ -16,6 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const project = await getProject(id);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (project.assets_purged_at) return NextResponse.json({ error: "Project assets were purged" }, { status: 410 });
 
   try {
     const path = project.preview_storage_path || await ensureProjectAssetArchived(project, "preview");

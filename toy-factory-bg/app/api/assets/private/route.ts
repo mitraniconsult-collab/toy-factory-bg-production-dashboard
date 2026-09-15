@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Temporary asset proxy failed", { path, error });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not read private asset" },
+      { error: "Could not read private asset" },
       { status: 502 }
     );
   }

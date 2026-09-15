@@ -4,10 +4,12 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { MANUAL_PRODUCTION_STATUSES, STATUS_META } from "@/lib/status";
 import { ProjectStatus } from "@/lib/projects";
+import { ALLOWED_TRANSITIONS } from "@/lib/operations";
 
 async function postJson(url: string, body?: unknown) {
   const response = await fetch(url, {
     method: "POST",
+    signal: AbortSignal.timeout(115_000),
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -22,6 +24,7 @@ export function SyncAllButton() {
   const [error, setError] = useState("");
 
   async function run() {
+    if (!confirm("Провери един чакащ проект. Следващата стъпка може да използва Meshy кредити. Продължи?")) return;
     setBusy(true);
     setError("");
     try {
@@ -37,7 +40,7 @@ export function SyncAllButton() {
   return (
     <div className="admin-inline-action">
       <button className="admin-button secondary" onClick={run} disabled={busy}>
-        {busy ? "Синхронизирам…" : "Sync Meshy now"}
+        {busy ? "Синхронизирам…" : "Обработи следващ проект"}
       </button>
       {error && <span className="admin-inline-error">{error}</span>}
     </div>
@@ -52,6 +55,7 @@ export function ProjectActions({
   trackingCompany,
   fulfillmentId,
   canRegenerateThreeMf = false,
+  blocked = false,
 }: {
   projectId: string;
   status: ProjectStatus;
@@ -60,6 +64,7 @@ export function ProjectActions({
   trackingCompany?: string | null;
   fulfillmentId?: string | null;
   canRegenerateThreeMf?: boolean;
+  blocked?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -70,10 +75,11 @@ export function ProjectActions({
   );
 
   async function action(kind: "sync" | "retry" | "regenerate-3mf") {
+    if (!confirm("Операцията може да стартира Meshy задача и да използва кредити. Продължи?")) return;
     setBusy(kind);
     setError("");
     try {
-      await postJson(`/api/admin/projects/${projectId}/${kind}`);
+      await postJson(`/api/admin/projects/${projectId}/${kind}`, { confirmCredits: true });
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : `${kind} failed`);
@@ -109,6 +115,8 @@ export function ProjectActions({
 
   return (
     <div className="project-actions-stack">
+      {blocked && <p role="alert" className="admin-error-box">Автоматизацията е спряна. Свери плащането или външната операция по процедурата за reconciliation, преди повторен опит.</p>}
+      <fieldset disabled={blocked || Boolean(busy)} className="admin-action-fieldset">
       <div className="admin-action-row">
         <button className="admin-button secondary" onClick={() => action("sync")} disabled={Boolean(busy)}>
           {busy === "sync" ? "Checking…" : "Check Meshy status"}
@@ -133,7 +141,7 @@ export function ProjectActions({
         <label>
           Production status
           <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as ProjectStatus)}>
-            {MANUAL_PRODUCTION_STATUSES.map((item) => (
+            {(ALLOWED_TRANSITIONS[status] || []).map((item) => (
               <option value={item} key={item}>{STATUS_META[item].label}</option>
             ))}
           </select>
@@ -154,7 +162,8 @@ export function ProjectActions({
           {busy === "save" ? "Saving…" : "Save production update"}
         </button>
       </form>
-      {fulfillmentId && <p className="file-note">Shopify fulfillment: {fulfillmentId} — клиентът е уведомен с tracking.</p>}
+      </fieldset>
+      {fulfillmentId && <p className="file-note">Shopify fulfillment: {fulfillmentId}. Поискано е известяване; доставката на имейла не е потвърдена.</p>}
       {notice && <p className="file-note">{notice}</p>}
       {error && <div className="admin-error-box">{error}</div>}
       <EraseProject projectId={projectId} />

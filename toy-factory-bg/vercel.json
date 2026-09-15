@@ -1,12 +1,13 @@
 {
+  "git": { "deploymentEnabled": { "astra/phase4-production-grade": false } },
   "crons": [
     {
       "path": "/api/cron/sync-production",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/retention",
-      "schedule": "30 3 * * *"
+      "schedule": "30 * * * *"
     }
   ]
 }

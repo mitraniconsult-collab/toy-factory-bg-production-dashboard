@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTask, type ModelKind } from "@/lib/meshy";
 import { consumeRateLimit, requestClientKey } from "@/lib/rate-limit";
+import { verifyPreviewAccess } from "@/lib/preview-access";
+import { publicFailure } from "@/lib/http";
 
 export const runtime = "nodejs";
 
@@ -32,6 +34,7 @@ export async function GET(request: NextRequest, context: { params: Params }) {
       return NextResponse.json({ error: "Невалиден task id." }, { status: 400 });
     }
 
+    if (!verifyPreviewAccess(modelKind, id, request.headers.get("x-preview-token"))) return NextResponse.json({ error: "Визуализацията е изтекла. Създай нова." }, { status: 401 });
     const rate = await consumeRateLimit({
       scope: "meshy-task-poll-hour",
       key: requestClientKey(request),
@@ -47,9 +50,8 @@ export async function GET(request: NextRequest, context: { params: Params }) {
     }
 
     const task = await getTask(modelKind, PUBLIC_STAGE, id);
-    return NextResponse.json(task);
+    return NextResponse.json({ id: task.id, status: task.status, progress: task.progress, image_urls: task.image_urls?.length ? task.image_urls : task.thumbnail_url ? [task.thumbnail_url] : [], ...(task.task_error ? { error: "Генерацията не успя. Опитай с друга снимка." } : {}) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return publicFailure(error);
   }
 }

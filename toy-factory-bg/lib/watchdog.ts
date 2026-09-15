@@ -1,6 +1,7 @@
 import { sendAlert } from "@/lib/alerts";
 import { listProjectsNeedingAlert, ProjectStatus, ToyProject, updateProject } from "@/lib/projects";
 import { STATUS_META } from "@/lib/status";
+import { retryDelay } from "@/lib/jobs";
 
 /** Automated stages where a project should not sit for long. */
 export const STALE_STATUSES: ProjectStatus[] = [
@@ -23,7 +24,7 @@ function describe(project: ToyProject) {
     `Клиент: ${project.customer_name || "—"} <${project.customer_email || "—"}>`,
     `Стил/размер: ${(project.model_kind || "pop").toUpperCase()} · ${project.size_cm} cm`,
     `Статус: ${meta?.label || project.status}`,
-    `Последна промяна: ${project.updated_at || "—"}`,
+    `Последна промяна на статус: ${project.status_changed_at || project.updated_at || "—"}`,
   ];
 }
 
@@ -50,9 +51,10 @@ export async function runWatchdog() {
       : [`Грешка: ${project.last_error}`, "", ...describe(project)];
 
     const sent = await sendAlert({ subject, lines, projectId: project.id });
-    // Stamp even when sending failed, otherwise a broken mail config would
-    // retry the same projects forever; the dashboard still shows last_error.
-    await updateProject(project.id, { alert_sent_at: new Date().toISOString() }).catch(() => null);
+    await updateProject(project.id, sent
+      ? { alert_sent_at: new Date().toISOString(), alert_attempts: 0 }
+      : { alert_attempts: (project.alert_attempts || 0) + 1, alert_next_retry_at: new Date(Date.now() + retryDelay((project.alert_attempts || 0) + 1) * 1000).toISOString() }
+    ).catch(() => null);
     results.push({ id: project.id, kind, sent });
   }
 
