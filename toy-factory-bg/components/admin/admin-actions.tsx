@@ -74,8 +74,11 @@ export function ProjectActions({
     MANUAL_PRODUCTION_STATUSES.includes(status) ? status : "READY_FOR_PRINT"
   );
 
-  async function action(kind: "sync" | "retry" | "regenerate-3mf") {
-    if (!confirm("Операцията може да стартира Meshy задача и да използва кредити. Продължи?")) return;
+  async function action(kind: "sync" | "retry" | "regenerate-3mf" | "reconcile-shopify") {
+    const warning = kind === "reconcile-shopify"
+      ? "Провери платената поръчка в Shopify и я свържи с проекта. При успешно потвърждение производството ще бъде поставено на опашка и може да използва Meshy кредити. Продължи?"
+      : "Операцията може да стартира Meshy задача и да използва кредити. Продължи?";
+    if (!confirm(warning)) return;
     setBusy(kind);
     setError("");
     try {
@@ -118,6 +121,11 @@ export function ProjectActions({
       {blocked && <p role="alert" className="admin-error-box">Автоматизацията е спряна. Свери плащането или външната операция по процедурата за reconciliation, преди повторен опит.</p>}
       <fieldset disabled={blocked || Boolean(busy)} className="admin-action-fieldset">
       <div className="admin-action-row">
+        {status === "CHECKOUT_CREATED" && (
+          <button className="admin-button primary" onClick={() => action("reconcile-shopify")} disabled={Boolean(busy)}>
+            {busy === "reconcile-shopify" ? "Проверявам Shopify…" : "Провери платена поръчка"}
+          </button>
+        )}
         <button className="admin-button secondary" onClick={() => action("sync")} disabled={Boolean(busy)}>
           {busy === "sync" ? "Checking…" : "Check Meshy status"}
         </button>
