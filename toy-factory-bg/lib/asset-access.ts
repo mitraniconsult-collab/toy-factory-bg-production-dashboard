@@ -32,7 +32,10 @@ export function verifyAssetAccess(path: string, expiresAt: number, signature: st
 
 export function createTemporaryAssetUrl(origin: string, path: string, expiresInSeconds = 3600) {
   const { expiresAt, signature } = signAssetAccess(path, expiresInSeconds);
-  const filename = path.split("/").pop() || "asset";
+  const storedFilename = path.split("/").pop() || "asset";
+  const filename = storedFilename.endsWith(".manifest.json")
+    ? storedFilename.slice(0, -".manifest.json".length)
+    : storedFilename;
   const url = new URL(`/api/assets/private/${encodeURIComponent(filename)}`, origin);
   url.searchParams.set("path", path);
   url.searchParams.set("exp", String(expiresAt));

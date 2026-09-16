@@ -22,6 +22,9 @@ describe("server boundaries", () => {
     const url = new URL(createTemporaryAssetUrl("https://popme.example", "project/model.glb"));
     expect(url.pathname).toBe("/api/assets/private/model.glb");
     expect(url.searchParams.get("path")).toBe("project/model.glb");
+    const chunkedUrl = new URL(createTemporaryAssetUrl("https://popme.example", "chunked/project/model.glb.manifest.json"));
+    expect(chunkedUrl.pathname).toBe("/api/assets/private/model.glb");
+    expect(chunkedUrl.searchParams.get("path")).toBe("chunked/project/model.glb.manifest.json");
   });
   it.each([true, false])("preserves rate limit allowed=%s", async (allowed) => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify([{ allowed, remaining: allowed ? 2 : 0, reset_at: "2026-10-01T00:00:00Z" }])));
