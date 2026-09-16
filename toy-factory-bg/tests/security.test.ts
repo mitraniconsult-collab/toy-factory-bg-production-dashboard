@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { verifyShopifyWebhook, shopifyShopDomainMatches } from "@/lib/shopify-webhook";
 import { consumeRateLimit } from "@/lib/rate-limit";
-import { signAssetAccess, verifyAssetAccess } from "@/lib/asset-access";
+import { createTemporaryAssetUrl, signAssetAccess, verifyAssetAccess } from "@/lib/asset-access";
 
 describe("server boundaries", () => {
   it("authenticates exact raw webhook bytes and rejects tampering", () => {
@@ -19,6 +19,9 @@ describe("server boundaries", () => {
     expect(verifyAssetAccess("project/model.glb", token.expiresAt, token.signature)).toBe(true);
     expect(verifyAssetAccess("other/model.glb", token.expiresAt, token.signature)).toBe(false);
     expect(verifyAssetAccess("project/model.glb", 1, token.signature)).toBe(false);
+    const url = new URL(createTemporaryAssetUrl("https://popme.example", "project/model.glb"));
+    expect(url.pathname).toBe("/api/assets/private/model.glb");
+    expect(url.searchParams.get("path")).toBe("project/model.glb");
   });
   it.each([true, false])("preserves rate limit allowed=%s", async (allowed) => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify([{ allowed, remaining: allowed ? 2 : 0, reset_at: "2026-10-01T00:00:00Z" }])));

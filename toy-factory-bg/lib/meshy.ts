@@ -57,7 +57,13 @@ async function meshyFetch(url: string, init?: RequestInit) {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const message = body?.message || body?.detail || body?.error || `Meshy request failed with ${response.status}`;
-    throw new Error(String(message));
+    console.error(JSON.stringify({
+      event: "meshy_request_failed",
+      endpoint: new URL(url).pathname,
+      status: response.status,
+      message: String(message),
+    }));
+    throw new Error(`Meshy API ${response.status}: ${String(message)}`);
   }
   return body;
 }
