@@ -54,7 +54,9 @@ async function advance(p: ToyProject): Promise<ToyProject | null> {
     return updateProject(p.id, { status: "PRINT_FILE_SUBMITTING", glb_url: task.model_urls.glb, glb_storage_path: path, last_error: null });
   }
   if (p.status === "PRINT_FILE_SUBMITTING") {
-    const input = privateGlb(p);
+    // Prefer Meshy's own resized GLB while its signed URL is active. Some large
+    // archived GLBs are chunked in Storage and must remain a fallback source.
+    const input = p.glb_url || privateGlb(p);
     if (!input) throw new Error("Missing printable GLB");
     const taskId = await externalOperation(p, "meshy-print", `${p.resize_task_id}:${p.retry_count || 0}`, () => createMultiColorPrint(input));
     return updateProject(p.id, { status: "PRINT_FILE_GENERATING", print_task_id: taskId, last_error: null });
