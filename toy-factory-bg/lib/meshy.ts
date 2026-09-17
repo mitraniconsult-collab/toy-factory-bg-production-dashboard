@@ -1,6 +1,7 @@
 import { jobContext } from "@/lib/job-context";
 const RESIZE_BASE_URL = "https://api.meshy.ai/openapi/v1/resize";
 const PRINT_BASE_URL = "https://api.meshy.ai/openapi/v1/print/multi-color";
+const PRINT_MAX_COLORS = 5;
 
 export type ModelKind = "pop" | "mini" | "brick";
 export type MeshyStage = "prototype" | "build";
@@ -110,8 +111,10 @@ export async function getResize(id: string): Promise<MeshyTask> {
 }
 
 export async function createMultiColorPrint(modelUrl: string): Promise<string> {
-  const parsed = Number(process.env.MESHY_PRINT_MAX_COLORS || "8");
-  const maxColors = Number.isFinite(parsed) ? Math.min(Math.max(Math.round(parsed), 1), 16) : 8;
+  const parsed = Number(process.env.MESHY_PRINT_MAX_COLORS || String(PRINT_MAX_COLORS));
+  const maxColors = Number.isFinite(parsed)
+    ? Math.min(Math.max(Math.round(parsed), 1), PRINT_MAX_COLORS)
+    : PRINT_MAX_COLORS;
   const data = await meshyFetch(PRINT_BASE_URL, {
     method: "POST",
     body: JSON.stringify(withWebhook({ model_url: modelUrl, max_colors: maxColors, style: "cartoon" })),
