@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { zipSync, strToU8, unzipSync, strFromU8 } from "fflate";
-import { resizeThreeMfToHeight } from "@/lib/three-mf";
+import { MASTER_FILAMENT_PALETTE, nearestMasterFilamentColour, resizeThreeMfToHeight } from "@/lib/three-mf";
 
 function fixture(transform = "") {
   return zipSync({
@@ -15,7 +15,12 @@ describe("print geometry", () => {
     expect(result.scale).toBe(height / 50);
     expect(xml).toContain(`z="${height.toFixed(4)}"`);
     expect(xml).toContain('paint_color="1"');
-    expect(result.palette).toEqual(["#FF0000", "#00FF00"]);
+    expect(result.palette).toEqual(["#D62828", "#2E7D32"]);
+  });
+  it("maps generated colours to the fixed production palette", () => {
+    expect(MASTER_FILAMENT_PALETTE).toHaveLength(20);
+    expect(nearestMasterFilamentColour("#FA1010")).toBe("#D62828");
+    expect(nearestMasterFilamentColour("#123B99")).toBe("#1E3A8A");
   });
   it("rejects rotated geometry instead of silently printing the wrong height", () => {
     expect(() => resizeThreeMfToHeight(fixture('transform="0 1 0 1 0 0 0 0 1 0 0 0"'), 100)).toThrow("rotation/scale");
