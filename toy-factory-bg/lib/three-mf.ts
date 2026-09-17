@@ -30,6 +30,29 @@ const VERTEX_PATTERN = /<vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"\s*\/>/
 /** Files already within this relative tolerance of the target are still rewritten, but logged as a no-op. */
 export const HEIGHT_TOLERANCE = 0.02;
 
+export const MASTER_FILAMENT_PALETTE = [
+  "#FFFFFF", // white
+  "#000000", // black
+  "#D1D5DB", // light gray
+  "#4B5563", // dark gray
+  "#E7D3B1", // beige
+  "#C69C6D", // tan
+  "#8B5E3C", // brown
+  "#4A2C1B", // dark brown
+  "#F2C7A5", // skin / peach
+  "#D62828", // red
+  "#F77F00", // orange
+  "#F2C94C", // yellow
+  "#8BC34A", // light green
+  "#2E7D32", // dark green
+  "#64B5F6", // light blue
+  "#2563EB", // blue
+  "#1E3A8A", // navy
+  "#7E57C2", // purple
+  "#F48FB1", // pink
+  "#D81B60", // magenta
+] as const;
+
 export class ThreeMfUnsupportedError extends Error {
   constructor(reason: string) {
     super(
@@ -128,6 +151,54 @@ function measure(xml: string, translation: Vec3, into: Bounds) {
     if (z < into.min[2]) into.min[2] = z;
     if (z > into.max[2]) into.max[2] = z;
     into.count += 1;
+  }
+}
+
+function rgb(hex: string) {
+  const value = hex.replace(/^#/, "").slice(0, 6);
+  if (!/^[0-9a-f]{6}$/i.test(value)) return null;
+  return [Number.parseInt(value.slice(0, 2), 16), Number.parseInt(value.slice(2, 4), 16), Number.parseInt(value.slice(4, 6), 16)] as const;
+}
+
+export function nearestMasterFilamentColour(input: string) {
+  const source = rgb(input);
+  if (!source) return null;
+  let best = MASTER_FILAMENT_PALETTE[0];
+  let bestDistance = Infinity;
+  for (const candidate of MASTER_FILAMENT_PALETTE) {
+    const target = rgb(candidate)!;
+    const distance =
+      (source[0] - target[0]) ** 2 +
+      (source[1] - target[1]) ** 2 +
+      (source[2] - target[2]) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+function normalizeFilamentPalette(archive: Record<string, Uint8Array>) {
+  const key = "Metadata/project_settings.config";
+  const bytes = archive[key];
+  if (!bytes) return false;
+  try {
+    const json = JSON.parse(strFromU8(bytes)) as Record<string, unknown>;
+    if (!Array.isArray(json.filament_colour)) return false;
+    let changed = false;
+    json.filament_colour = json.filament_colour.map((value) => {
+      if (typeof value !== "string") return value;
+      const normalized = nearestMasterFilamentColour(value);
+      if (!normalized) return value;
+      const mapped = value.length === 9 && value.startsWith("#") ? `${normalized}FF` : normalized;
+      if (mapped.toUpperCase() !== value.toUpperCase()) changed = true;
+      return mapped;
+    });
+    if (changed) archive[key] = strToU8(JSON.stringify(json, null, 4));
+    return changed;
+  } catch {
+    return false;
   }
 }
 
@@ -274,6 +345,7 @@ export function resizeThreeMfToHeight(
   }
   xmlByPath.clear();
 
+  const paletteNormalized = normalizeFilamentPalette(archive);
   const retargeted = retargetBambuProject(archive, options.bambuTarget);
   const palette = readFilamentPalette(archive);
   const output = zipSync(archive, { level: 6 });
@@ -287,6 +359,7 @@ export function resizeThreeMfToHeight(
     alreadyCorrect,
     vertexCount: bounds.count,
     palette,
+    paletteNormalized,
     retargeted,
   };
 }
